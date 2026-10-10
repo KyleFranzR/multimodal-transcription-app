@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caecus"
+version = "0.1.0"
+description = "An offline, multimodal transcription application to be used for project design"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "KyleFranzR", email = "kylefranzrodriguez@gmail.com" }
+]
+keywords = ["transcription", "asr", "ocr", "raspberry-pi", "sherpa-onnx", "tesseract"]
+
+dependencies = [
+    "customtkinter>=5.2.2",
+    "sherpa-onnx>=1.10.30",
+    "pytesseract>=0.3.13",
+    "python-docx>=1.1.2",
+    "pypdf>=4.3.1",
+    "Pillow>=10.4.0",
+    "librosa>=0.10.2",
+    "soundfile>=0.12.1",
+    "sounddevice>=0.5.0",
+    "numpy>=2.0.0",
+    "moviepy>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "flake8",
+    "pytest",
+]
+
+[project.scripts]
+caecus = "caecus.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["caecus*"]
