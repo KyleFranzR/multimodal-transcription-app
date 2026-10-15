@@ -76,17 +76,6 @@ class PreviewDialog(ctk.CTkFrame):
         )
         self.header_label.pack(side="left", fill="x", expand=True)
 
-        close_btn = ctk.CTkButton(
-            header_frame,
-            text="✕",
-            width=28,
-            height=28,
-            fg_color="transparent",
-            hover_color="#3a3a3a",
-            command=self._hide_panel
-        )
-        close_btn.pack(side="right")
-
         # Action Buttons Frame
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(padx=15, pady=15, fill="x", side="bottom")

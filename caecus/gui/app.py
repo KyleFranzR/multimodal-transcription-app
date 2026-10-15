@@ -35,6 +35,13 @@ class CaecusApp(ctk.CTk):
         self.attributes("-fullscreen", True)
         self.bind("<Control-Alt-q>", self._exit_kiosk)
 
+        # Accessibility Font Definitions (OpenDyslexic with Arial/sans-serif fallback)
+        self.accessible_font_family = "OpenDyslexic"
+        self.main_text_font = ctk.CTkFont(family=self.accessible_font_family, size=22, weight="normal")
+        self.header_title_font = ctk.CTkFont(family=self.accessible_font_family, size=28, weight="bold")
+        self.header_status_font = ctk.CTkFont(family=self.accessible_font_family, size=18, weight="bold")
+        self.button_font = ctk.CTkFont(family=self.accessible_font_family, size=18, weight="bold")
+
         # Core Services
         self.asr = None
         self.recorder = AudioRecorderService(sample_rate=config.SAMPLE_RATE)
@@ -81,42 +88,60 @@ class CaecusApp(ctk.CTk):
         self.header_frame.pack(padx=15, pady=(15, 10), fill="x")
 
         self.title_label = ctk.CTkLabel(
-            self.header_frame, text="Caecus", font=ctk.CTkFont(size=26, weight="bold")
+            self.header_frame, text="Caecus", font=self.header_title_font
         )
         self.title_label.pack(side="left", padx=15, pady=12)
 
         self.status_label = ctk.CTkLabel(
             self.header_frame,
             text="Status: Initializing ASR Engine...",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=self.header_status_font,
             text_color="orange",
         )
         self.status_label.pack(side="right", padx=15, pady=12)
 
-        # --- Main Text Display Area ---
+        # --- Dual Text Display Area (High Readability 50/50 Split) ---
+        self.textboxes_container = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
+        self.textboxes_container.pack(padx=15, pady=5, fill="both", expand=True)
+
+        # Top Textbox: Raw Text Stream / File Output (High Visibility)
         self.textbox = ctk.CTkTextbox(
-            self.main_content_frame,
-            font=ctk.CTkFont(size=18),
+            self.textboxes_container,
+            font=self.main_text_font,
             wrap="word",
             activate_scrollbars=True
         )
-        self.textbox.pack(padx=15, pady=8, fill="both", expand=True)
+        self.textbox.pack(fill="both", expand=True, pady=(0, 6))
 
-        # Disable undo stack on underlying tk widget to save RAM & CPU cycles
-        try:
-            self.textbox._textbox.configure(undo=False)
-        except Exception:
-            pass
+        # Bottom Textbox: Braille Pattern Output Placeholder
+        self.braille_textbox = ctk.CTkTextbox(
+            self.textboxes_container,
+            font=self.main_text_font,
+            wrap="word",
+            text_color="#A0A0A0",
+            activate_scrollbars=True
+        )
+        self.braille_textbox.pack(fill="both", expand=True, pady=(6, 0))
+        self.braille_textbox.insert("1.0", "[ Braille pattern output placeholder ]")
+        self.braille_textbox.configure(state="disabled")
 
-        # Bind touchscreen drag gesture
-        self.textbox.bind("<Button-1>", self._start_touch_scroll, add="+")
-        self.textbox.bind("<B1-Motion>", self._touch_scroll, add="+")
+        # Disable undo stack on underlying tk widgets to save RAM & CPU cycles
+        for tb in (self.textbox, self.braille_textbox):
+            try:
+                tb._textbox.configure(undo=False)
+            except Exception:
+                pass
+
+        # Bind touchscreen drag gesture to both textboxes
+        for tb in (self.textbox, self.braille_textbox):
+            tb.bind("<Button-1>", lambda e, widget=tb: self._start_touch_scroll(e, widget), add="+")
+            tb.bind("<B1-Motion>", lambda e, widget=tb: self._touch_scroll(e, widget), add="+")
 
         # --- Progress Indicator Frame ---
         self.progress_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
         self.progress_frame.pack(padx=15, pady=(0, 5), fill="x")
 
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=16)
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=18)
         self.progress_bar.pack(fill="x", padx=5)
         self.progress_bar.set(0)
 
@@ -131,8 +156,8 @@ class CaecusApp(ctk.CTk):
             state="disabled",
             fg_color="green",
             hover_color="darkgreen",
-            height=50,
-            font=ctk.CTkFont(size=16, weight="bold"),
+            height=54,
+            font=self.button_font,
         )
         self.toggle_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
 
@@ -143,8 +168,8 @@ class CaecusApp(ctk.CTk):
             state="disabled",
             fg_color="#1f538d",
             hover_color="#14375e",
-            height=50,
-            font=ctk.CTkFont(size=16, weight="bold"),
+            height=54,
+            font=self.button_font,
         )
         self.file_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
 
@@ -154,8 +179,8 @@ class CaecusApp(ctk.CTk):
             command=self.cancel_file_processing,
             fg_color="darkred",
             hover_color="#8B0000",
-            height=50,
-            font=ctk.CTkFont(size=16, weight="bold"),
+            height=54,
+            font=self.button_font,
         )
 
         self.clear_btn = ctk.CTkButton(
@@ -164,24 +189,24 @@ class CaecusApp(ctk.CTk):
             command=self.clear_text,
             fg_color="gray",
             hover_color="#404040",
-            height=50,
-            font=ctk.CTkFont(size=16, weight="bold"),
+            height=54,
+            font=self.button_font,
         )
         self.clear_btn.pack(side="right", padx=10, pady=10)
 
     # --- Throttled Touch Gesture Scroll ---
-    def _start_touch_scroll(self, event):
+    def _start_touch_scroll(self, event, target_textbox=None):
         self._last_touch_y = event.y
 
-    def _touch_scroll(self, event):
+    def _touch_scroll(self, event, target_textbox=None):
         now = time.time()
         if now - self._last_scroll_time < 0.033:
             return
 
-        if hasattr(self, "_last_touch_y"):
+        if hasattr(self, "_last_touch_y") and target_textbox:
             delta = self._last_touch_y - event.y
             if abs(delta) > 5:
-                self.textbox.yview_scroll(int(delta / 10), "units")
+                target_textbox.yview_scroll(int(delta / 10), "units")
                 self._last_touch_y = event.y
                 self._last_scroll_time = now
 
@@ -449,6 +474,10 @@ class CaecusApp(ctk.CTk):
 
     def clear_text(self):
         self.textbox.delete("1.0", "end")
+        self.braille_textbox.configure(state="normal")
+        self.braille_textbox.delete("1.0", "end")
+        self.braille_textbox.insert("1.0", "[ Braille pattern output placeholder ]")
+        self.braille_textbox.configure(state="disabled")
         self.status_label.configure(text="Status: Ready", text_color="green")
 
 
