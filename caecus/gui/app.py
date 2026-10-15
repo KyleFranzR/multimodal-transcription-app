@@ -22,12 +22,13 @@ class CaecusApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("Caecus - Offline Multimodal Transcription")
+        self.title("Caecus - Multimodal Braille Transcription")
         self.geometry("800x480")  # Standard Pi LCD touch resolution
         self.minsize(600, 400)
 
         # Optional: Uncomment line below for borderless touchscreen Kiosk mode on Pi
-        # self.attributes("-fullscreen", True)
+        self.attributes("-fullscreen", True)
+        self.bind("<Control-Alt-q>", self._exit_kiosk)
 
         # Core Services
         self.asr = None
@@ -48,6 +49,9 @@ class CaecusApp(ctk.CTk):
 
         # Load ASR Engine in background to prevent UI freeze on boot
         threading.Thread(target=self._init_asr_engine, daemon=True).start()
+
+    def _exit_kiosk(self, event=None):
+        self.destroy()
 
     def _setup_ui(self):
         # Header / Status Frame
