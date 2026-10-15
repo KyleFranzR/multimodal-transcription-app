@@ -1,6 +1,13 @@
+import os
+from io import BytesIO
 from pathlib import Path
 import docx
 import pypdf
+import pytesseract
+from PIL import Image
+
+# Cap OpenMP threads on Raspberry Pi 5 to keep 2 cores open for the GUI
+os.environ["OMP_THREAD_LIMIT"] = "2"
 
 
 class DocumentProcessor:
@@ -22,31 +29,74 @@ class DocumentProcessor:
 
     def _extract_docx(self, path: Path, progress_callback, is_cancelled) -> str:
         doc = docx.Document(path)
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        paragraphs = doc.paragraphs
         total = len(paragraphs)
-        extracted = []
+        if total == 0:
+            return ""
 
-        for i, text in enumerate(paragraphs):
+        extracted = []
+        step = max(1, total // 50)
+
+        for i, p in enumerate(paragraphs):
             if is_cancelled and is_cancelled():
                 return ""
-            extracted.append(text)
-            if progress_callback and total > 0:
+
+            text = p.text.strip()
+            if text:
+                extracted.append(text)
+
+            if progress_callback and (i % step == 0 or i == total - 1):
                 progress_callback((i + 1) / total)
 
         return "\n\n".join(extracted)
 
     def _extract_pdf(self, path: Path, progress_callback, is_cancelled) -> str:
-        text_pages = []
         reader = pypdf.PdfReader(path)
         total_pages = len(reader.pages)
+        if total_pages == 0:
+            return ""
+
+        text_pages = []
+        step = max(1, total_pages // 50)
 
         for i, page in enumerate(reader.pages):
             if is_cancelled and is_cancelled():
                 return ""
+
             extracted = page.extract_text()
-            if extracted:
+
+            # Fast OCR fallback tuned specifically for Pi 5 ARM CPU
+            if not extracted or not extracted.strip():
+                ocr_text = []
+                for img_obj in page.images:
+                    if is_cancelled and is_cancelled():
+                        return ""
+                    try:
+                        img = Image.open(BytesIO(img_obj.data))
+
+                        # 1. Downscale to max 1200px (Saves massive CPU cycles on Pi 5)
+                        if max(img.size) > 1200:
+                            img.thumbnail((1200, 1200), Image.Resampling.BILINEAR)
+
+                        # 2. Convert to Grayscale
+                        if img.mode != "L":
+                            img = img.convert("L")
+
+                        # 3. Fast Tesseract flags for Pi 5
+                        txt = pytesseract.image_to_string(
+                            img, config="--oem 1 --psm 3 -c tessedit_do_invert=0"
+                        ).strip()
+
+                        if txt:
+                            ocr_text.append(txt)
+                    except Exception:
+                        pass
+                extracted = "\n".join(ocr_text)
+
+            if extracted and extracted.strip():
                 text_pages.append(extracted.strip())
-            if progress_callback and total_pages > 0:
+
+            if progress_callback and (i % step == 0 or i == total_pages - 1):
                 progress_callback((i + 1) / total_pages)
 
         return "\n\n".join(text_pages)
