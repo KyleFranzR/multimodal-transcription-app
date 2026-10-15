@@ -60,8 +60,24 @@ class CaecusApp(ctk.CTk):
         self.destroy()
 
     def _setup_ui(self):
-        # Header / Status Frame
-        self.header_frame = ctk.CTkFrame(self)
+        # Master Layout Container
+        self.master_container = ctk.CTkFrame(self, fg_color="transparent")
+        self.master_container.pack(fill="both", expand=True)
+
+        # Main Content Area (Left side)
+        self.main_content_frame = ctk.CTkFrame(self.master_container, fg_color="transparent")
+        self.main_content_frame.pack(side="left", fill="both", expand=True)
+
+        # Embedded Preview Side Panel (Right side - set width to 460)
+        self.preview_panel = PreviewDialog(
+            self.master_container,
+            on_confirm_callback=self._start_file_processing,
+            on_close_callback=self._on_preview_closed,
+            width=460
+        )
+
+        # --- Header / Status Frame ---
+        self.header_frame = ctk.CTkFrame(self.main_content_frame)
         self.header_frame.pack(padx=15, pady=(15, 10), fill="x")
 
         self.title_label = ctk.CTkLabel(
@@ -77,9 +93,9 @@ class CaecusApp(ctk.CTk):
         )
         self.status_label.pack(side="right", padx=15, pady=12)
 
-        # Main Text Display Area
+        # --- Main Text Display Area ---
         self.textbox = ctk.CTkTextbox(
-            self,
+            self.main_content_frame,
             font=ctk.CTkFont(size=18),
             wrap="word",
             activate_scrollbars=True
@@ -96,16 +112,16 @@ class CaecusApp(ctk.CTk):
         self.textbox.bind("<Button-1>", self._start_touch_scroll, add="+")
         self.textbox.bind("<B1-Motion>", self._touch_scroll, add="+")
 
-        # Progress Indicator Frame
-        self.progress_frame = ctk.CTkFrame(self, fg_color="transparent")
+        # --- Progress Indicator Frame ---
+        self.progress_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
         self.progress_frame.pack(padx=15, pady=(0, 5), fill="x")
 
         self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=16)
         self.progress_bar.pack(fill="x", padx=5)
         self.progress_bar.set(0)
 
-        # Controls Frame
-        self.controls_frame = ctk.CTkFrame(self)
+        # --- Controls Frame ---
+        self.controls_frame = ctk.CTkFrame(self.main_content_frame)
         self.controls_frame.pack(padx=15, pady=(5, 15), fill="x")
 
         self.toggle_btn = ctk.CTkButton(
@@ -301,8 +317,7 @@ class CaecusApp(ctk.CTk):
         
         self._append_text_safely(new_text)
 
-    # --- File Import & Preview Dialog Logic ---
-    
+    # --- File Import & Side Panel Logic ---
     def open_file_dialog(self):
         current_len = len(self.textbox.get("1.0", "end-1c"))
         if current_len >= self.MAX_BRAILLE_CELLS:
@@ -324,10 +339,15 @@ class CaecusApp(ctk.CTk):
         if not file_path:
             return
 
-        # Open Visual Print/Media Preview Dialog
-        PreviewDialog(self, file_path=file_path, on_confirm_callback=self._start_file_processing)
+        # Slide out Side Panel on the right and load preview
+        self.preview_panel.pack(side="right", fill="y", expand=False)
+        self.preview_panel.show_file(file_path)
+
+    def _on_preview_closed(self):
+        self.status_label.configure(text="Status: Ready", text_color="green")
 
     def _start_file_processing(self, file_path: str):
+        self.preview_panel._hide_panel()
         self.cancel_event.clear()
 
         # Swap Import File button for Cancel button

@@ -26,12 +26,20 @@ MAX_DOCX_CHARS = 1500
 MAX_MEDIA_DURATION_SEC = 30
 
 
-class PreviewDialog(ctk.CTkToplevel):
-    def __init__(self, parent, file_path: str, on_confirm_callback):
-        super().__init__(parent)
-        self.file_path = Path(file_path).resolve()
-        self.on_confirm_callback = on_confirm_callback
+class PreviewDialog(ctk.CTkFrame):
+    def __init__(self, parent, on_confirm_callback, on_close_callback=None, **kwargs):
+        # Enforce fixed 460px width
+        kwargs["width"] = kwargs.get("width", 460)
+        super().__init__(parent, fg_color="#1e1e1e", corner_radius=0, **kwargs)
+        
+        # Prevent children widgets from altering panel width
+        self.pack_propagate(False)
+        self.grid_propagate(False)
 
+        self.on_confirm_callback = on_confirm_callback
+        self.on_close_callback = on_close_callback
+
+        self.file_path = None
         self.is_playing = False
         self.playback_start_time = 0.0
         self.audio_process = None
@@ -41,49 +49,86 @@ class PreviewDialog(ctk.CTkToplevel):
         self.canvas_image_id = None
         self.timer_id = None
 
-        self.title("File Preview")
-        self.geometry("560x650")
-        self.minsize(500, 500)
-
-        self.transient(parent)
-        self.grab_set()
-
         self._setup_ui()
+
+    def show_file(self, file_path: str):
+        """Loads and renders a new file inside the fixed-size panel."""
+        self._stop_media()
+        self.file_path = Path(file_path).resolve()
+
+        # Clear previous visual content
+        for child in self.canvas_frame.winfo_children():
+            child.destroy()
+
+        self.header_label.configure(text=f"Preview - {self.file_path.name}")
         self._render_visual_preview()
-        self.protocol("WM_DELETE_WINDOW", self._close)
 
     def _setup_ui(self):
-        ctk.CTkLabel(
-            self,
-            text=f"Document Preview - {self.file_path.name}",
-            font=ctk.CTkFont(size=15, weight="bold")
-        ).pack(padx=20, pady=(15, 5), anchor="w")
+        # Header Bar
+        header_frame = ctk.CTkFrame(self, fg_color="transparent")
+        header_frame.pack(padx=15, pady=(15, 5), fill="x", side="top")
 
+        self.header_label = ctk.CTkLabel(
+            header_frame,
+            text="Document Preview",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            anchor="w"
+        )
+        self.header_label.pack(side="left", fill="x", expand=True)
+
+        close_btn = ctk.CTkButton(
+            header_frame,
+            text="✕",
+            width=28,
+            height=28,
+            fg_color="transparent",
+            hover_color="#3a3a3a",
+            command=self._hide_panel
+        )
+        close_btn.pack(side="right")
+
+        # Action Buttons Frame
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
-        btn_frame.pack(padx=20, pady=15, fill="x", side="bottom")
+        btn_frame.pack(padx=15, pady=15, fill="x", side="bottom")
 
         ctk.CTkButton(
-            btn_frame, text="Cancel", fg_color="#3a3a3a", hover_color="#505050",
-            command=self._close, height=42, font=ctk.CTkFont(size=14, weight="bold")
-        ).pack(side="left", padx=5, expand=True, fill="x")
+            btn_frame,
+            text="Cancel",
+            fg_color="#3a3a3a",
+            hover_color="#505050",
+            command=self._hide_panel,
+            height=42,
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="left", padx=(0, 5), expand=True, fill="x")
 
         ctk.CTkButton(
-            btn_frame, text="Confirm and Transcribe", fg_color="#007ACC", hover_color="#005999",
-            command=self._confirm, height=42, font=ctk.CTkFont(size=14, weight="bold")
-        ).pack(side="right", padx=5, expand=True, fill="x")
+            btn_frame,
+            text="Confirm and Transcribe",
+            fg_color="#007ACC",
+            hover_color="#005999",
+            command=self._confirm,
+            height=42,
+            font=ctk.CTkFont(size=13, weight="bold")
+        ).pack(side="right", padx=(5, 0), expand=True, fill="x")
 
-        self.canvas_frame = ctk.CTkScrollableFrame(self, fg_color="#181818", corner_radius=8)
-        self.canvas_frame.pack(padx=20, pady=5, fill="both", expand=True, side="top")
+        # Scrollable Viewport
+        self.canvas_frame = ctk.CTkScrollableFrame(self, fg_color="#141414", corner_radius=6)
+        self.canvas_frame.pack(padx=15, pady=5, fill="both", expand=True, side="top")
 
     def _render_visual_preview(self):
+        if not self.file_path or not self.file_path.exists():
+            return
+
         ext = self.file_path.suffix.lower()
 
         if ext in {".png", ".jpg", ".jpeg", ".bmp"}:
             img = Image.open(self.file_path)
             self._add_image_page(img)
             ctk.CTkLabel(
-                self.canvas_frame, text=f"Resolution: {img.width} x {img.height} px",
-                font=ctk.CTkFont(size=12), text_color="gray"
+                self.canvas_frame,
+                text=f"Resolution: {img.width} x {img.height} px",
+                font=ctk.CTkFont(size=12),
+                text_color="gray"
             ).pack(pady=(2, 10))
 
         elif ext == ".pdf":
@@ -95,8 +140,10 @@ class PreviewDialog(ctk.CTkToplevel):
                     pix = doc[idx].get_pixmap(dpi=120)
                     img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                     ctk.CTkLabel(
-                        self.canvas_frame, text=f"Page {idx + 1} of {total_pages}",
-                        font=ctk.CTkFont(size=12), text_color="gray"
+                        self.canvas_frame,
+                        text=f"Page {idx + 1} of {total_pages}",
+                        font=ctk.CTkFont(size=12),
+                        text_color="gray"
                     ).pack(pady=(10, 2))
                     self._add_image_page(img)
 
@@ -104,7 +151,9 @@ class PreviewDialog(ctk.CTkToplevel):
                     ctk.CTkLabel(
                         self.canvas_frame,
                         text=f"Displaying first {MAX_PDF_PAGES} of {total_pages} pages. Full file will be transcribed.",
-                        font=ctk.CTkFont(size=12, weight="bold"), text_color="#007ACC", wraplength=480
+                        font=ctk.CTkFont(size=12, weight="bold"),
+                        text_color="#007ACC",
+                        wraplength=380
                     ).pack(pady=(10, 15))
 
         elif ext == ".docx":
@@ -113,13 +162,17 @@ class PreviewDialog(ctk.CTkToplevel):
             text = "\n\n".join(paragraphs)[:MAX_DOCX_CHARS]
 
             paper = ctk.CTkFrame(self.canvas_frame, fg_color="#FFFFFF", corner_radius=4)
-            paper.pack(padx=15, pady=15, fill="both", expand=True)
+            paper.pack(padx=10, pady=10, fill="both", expand=True)
 
             tb = ctk.CTkTextbox(
-                paper, font=ctk.CTkFont(family="Times New Roman", size=14),
-                text_color="#111111", fg_color="#FFFFFF", wrap="word", height=320
+                paper,
+                font=ctk.CTkFont(family="Times New Roman", size=13),
+                text_color="#111111",
+                fg_color="#FFFFFF",
+                wrap="word",
+                height=320
             )
-            tb.pack(padx=15, pady=15, fill="both", expand=True)
+            tb.pack(padx=10, pady=10, fill="both", expand=True)
             tb.insert("1.0", text or "[ Document contains no extractable text ]")
             tb.configure(state="disabled")
 
@@ -127,17 +180,17 @@ class PreviewDialog(ctk.CTkToplevel):
             self._render_media_card(ext)
 
     def _add_image_page(self, pil_image: Image.Image):
-        pil_image.thumbnail((460, 550), Image.Resampling.BILINEAR)
+        pil_image.thumbnail((380, 520), Image.Resampling.BILINEAR)
         ctk_img = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=pil_image.size)
         ctk.CTkLabel(self.canvas_frame, image=ctk_img, text="").pack(pady=10, expand=True)
 
     def _render_media_card(self, ext: str):
-        card = ctk.CTkFrame(self.canvas_frame, fg_color="#252525", corner_radius=10)
-        card.pack(padx=15, pady=20, fill="both", expand=True)
+        card = ctk.CTkFrame(self.canvas_frame, fg_color="#252525", corner_radius=8)
+        card.pack(padx=10, pady=10, fill="both", expand=True)
 
         self.is_audio = ext in {".wav", ".mp3"}
-        self.canvas = tk.Canvas(card, width=440, height=260, bg="#121212", highlightthickness=0)
-        self.canvas.pack(padx=15, pady=15, fill="both", expand=True)
+        self.canvas = tk.Canvas(card, height=260, bg="#121212", highlightthickness=0)
+        self.canvas.pack(padx=10, pady=10, fill="both", expand=True)
 
         self.media_display = ctk.CTkLabel(
             card,
@@ -152,10 +205,10 @@ class PreviewDialog(ctk.CTkToplevel):
             command=self._toggle_media_playback,
             fg_color="#007ACC",
             hover_color="#005999",
-            height=40,
+            height=42,
             font=ctk.CTkFont(size=14, weight="bold")
         )
-        self.play_btn.pack(pady=(0, 15), padx=20, fill="x")
+        self.play_btn.pack(pady=(0, 15), padx=15, fill="x")
 
     def _toggle_media_playback(self):
         if self.is_playing:
@@ -221,13 +274,16 @@ class PreviewDialog(ctk.CTkToplevel):
         if self.video_cap and self.video_cap.isOpened():
             ret, frame = self.video_cap.read()
             if ret:
+                c_w = self.canvas.winfo_width() or 380
+                c_h = self.canvas.winfo_height() or 260
+                
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
-                img.thumbnail((440, 260), Image.Resampling.BILINEAR)
+                img.thumbnail((c_w, c_h), Image.Resampling.BILINEAR)
                 self.current_tk_img = ImageTk.PhotoImage(img)
 
                 if self.canvas_image_id is None:
-                    self.canvas_image_id = self.canvas.create_image(220, 130, image=self.current_tk_img, anchor="center")
+                    self.canvas_image_id = self.canvas.create_image(c_w // 2, c_h // 2, image=self.current_tk_img, anchor="center")
                 else:
                     self.canvas.itemconfig(self.canvas_image_id, image=self.current_tk_img)
             else:
@@ -284,18 +340,18 @@ class PreviewDialog(ctk.CTkToplevel):
                 self.media_display.configure(
                     text=f"{self.file_path.name}\n\nPlayback Limit Reached (30s max)"
                 )
-            else:
+            elif self.file_path:
                 self.media_display.configure(
                     text=f"{self.file_path.name}\n\nPlayback Active - 0:30 remaining"
                 )
 
+    def _hide_panel(self):
+        self._stop_media()
+        self.pack_forget()
+        if self.on_close_callback:
+            self.on_close_callback()
+
     def _confirm(self):
         self._stop_media()
-        self.grab_release()
-        self.destroy()
-        self.on_confirm_callback(str(self.file_path))
-
-    def _close(self):
-        self._stop_media()
-        self.grab_release()
-        self.destroy()
+        if self.file_path and self.on_confirm_callback:
+            self.on_confirm_callback(str(self.file_path))
