@@ -397,8 +397,8 @@ class CaecusApp(ctk.CTk):
             return
 
         filetypes = [
-            ("All Supported Files", "*.docx *.pdf *.png *.jpg *.jpeg *.bmp *.wav *.mp3 *.mp4 *.mov"),
-            ("Documents", "*.docx *.pdf"),
+            ("All Supported Files", "*.txt *.docx *.pdf *.png *.jpg *.jpeg *.bmp *.wav *.mp3 *.mp4 *.mov"),
+            ("Documents", "*.txt *.docx *.pdf"),
             ("Images (OCR)", "*.png *.jpg *.jpeg *.bmp"),
             ("Audio Files", "*.wav *.mp3"),
             ("Video Files", "*.mp4 *.mov"),

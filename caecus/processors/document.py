@@ -12,7 +12,7 @@ os.environ["OMP_THREAD_LIMIT"] = "2"
 
 class DocumentProcessor:
     def __init__(self):
-        self.supported_extensions = {".docx", ".pdf"}
+        self.supported_extensions = {".docx", ".pdf", ".txt"}
 
     def process(self, file_path: str, progress_callback=None, is_cancelled=None) -> str:
         path = Path(file_path)
@@ -20,12 +20,30 @@ class DocumentProcessor:
             raise FileNotFoundError(f"Document file not found: {file_path}")
 
         ext = path.suffix.lower()
-        if ext == ".docx":
+        if ext == ".txt":
+            return self._extract_txt(path, progress_callback, is_cancelled)
+        elif ext == ".docx":
             return self._extract_docx(path, progress_callback, is_cancelled)
         elif ext == ".pdf":
             return self._extract_pdf(path, progress_callback, is_cancelled)
         else:
             raise ValueError(f"Unsupported document extension: {ext}")
+
+    def _extract_txt(self, path: Path, progress_callback, is_cancelled) -> str:
+        """Lightweight native text extraction for .txt files."""
+        if is_cancelled and is_cancelled():
+            return ""
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read().strip()
+        except Exception as e:
+            raise RuntimeError(f"Failed to read text file: {e}")
+
+        if progress_callback:
+            progress_callback(1.0)
+
+        return content
 
     def _extract_docx(self, path: Path, progress_callback, is_cancelled) -> str:
         doc = docx.Document(path)

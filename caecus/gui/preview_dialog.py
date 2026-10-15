@@ -145,10 +145,17 @@ class PreviewDialog(ctk.CTkFrame):
                         wraplength=380
                     ).pack(pady=(10, 15))
 
-        elif ext == ".docx":
-            doc = docx.Document(self.file_path)
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()][:MAX_DOCX_PARAGRAPHS]
-            text = "\n\n".join(paragraphs)[:MAX_DOCX_CHARS]
+        elif ext in {".docx", ".txt"}:
+            if ext == ".docx":
+                doc = docx.Document(self.file_path)
+                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()][:MAX_DOCX_PARAGRAPHS]
+                text = "\n\n".join(paragraphs)[:MAX_DOCX_CHARS]
+            else:
+                try:
+                    with open(self.file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        text = f.read(MAX_DOCX_CHARS)
+                except Exception:
+                    text = "[ Unable to load text preview ]"
 
             paper = ctk.CTkFrame(self.canvas_frame, fg_color="#FFFFFF", corner_radius=4)
             paper.pack(padx=10, pady=10, fill="both", expand=True)
