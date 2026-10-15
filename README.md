@@ -19,6 +19,7 @@ multimodal-transcription-app/
 │   ├── bin/                    # Platform binaries / Tesseract OCR executables
 │   ├── gui/
 │   │   └── app.py              # Touchscreen CustomTkinter GUI
+│   │   └── preview_dialog.py
 │   ├── models/                 # Sherpa-ONNX ASR model directories (.onnx)
 │   ├── processors/             # File ingestion modules
 │   │   ├── audio.py
