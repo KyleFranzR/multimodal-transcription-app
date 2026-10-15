@@ -55,6 +55,19 @@ class AudioRecorderService:
         except queue.Empty:
             return None
 
+    def get_audio_chunk_with_energy(self):
+        """
+        Retrieves the next queued audio chunk and calculates its RMS energy.
+        Returns: (chunk, rms_energy)
+        """
+        chunk = self.get_audio_chunk()
+        if chunk is None or len(chunk) == 0:
+            return None, 0.0
+
+        # Float32 array values range between -1.0 and 1.0
+        rms = float(np.sqrt(np.mean(chunk**2)))
+        return chunk, rms
+
 
 if __name__ == "__main__":
     import time
@@ -65,9 +78,9 @@ if __name__ == "__main__":
     recorder.start_recording()
 
     for i in range(30):
-        chunk = recorder.get_audio_chunk()
+        chunk, rms = recorder.get_audio_chunk_with_energy()
         if chunk is not None:
-            print(f"Captured audio chunk with shape: {chunk.shape}")
+            print(f"Captured audio chunk with shape: {chunk.shape} | RMS Energy: {rms:.4f}")
         time.sleep(0.1)
 
     recorder.stop_recording()

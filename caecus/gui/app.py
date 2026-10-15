@@ -35,7 +35,7 @@ class CaecusApp(ctk.CTk):
         self.attributes("-fullscreen", True)
         self.bind("<Control-Alt-q>", self._exit_kiosk)
 
-        # Accessibility Font Definitions (OpenDyslexic with Arial/sans-serif fallback)
+        # Accessibility Font Definitions (OpenDyslexic with Arial fallback)
         self.accessible_font_family = "OpenDyslexic"
         self.main_text_font = ctk.CTkFont(family=self.accessible_font_family, size=22, weight="normal")
         self.header_title_font = ctk.CTkFont(family=self.accessible_font_family, size=28, weight="bold")
@@ -314,9 +314,42 @@ class CaecusApp(ctk.CTk):
         stream = self.asr.recognizer.create_stream()
         last_text = ""
 
+        # Silence Auto-Stop Config
+        SILENCE_THRESHOLD_RMS = 0.01  # 1% sound energy threshold for sounddevice float32
+        MAX_SILENCE_SEC = 10.0
+        last_audio_time = time.time()
+        last_countdown = -1
+
         while self.is_transcribing:
-            chunk = self.recorder.get_audio_chunk()
+            chunk, rms = self.recorder.get_audio_chunk_with_energy()
+            now = time.time()
+
             if chunk is not None:
+                # Track silence vs speech
+                if rms >= SILENCE_THRESHOLD_RMS:
+                    last_audio_time = now
+                    if last_countdown != -1:
+                        last_countdown = -1
+                        self.after(0, lambda: self.status_label.configure(
+                            text="Status: Listening...", text_color="#0066FF"
+                        ))
+                else:
+                    silence_duration = now - last_audio_time
+                    remaining_sec = max(0, int(MAX_SILENCE_SEC - silence_duration))
+
+                    # Update countdown status when silent for > 1 sec
+                    if silence_duration >= 1.0 and remaining_sec != last_countdown:
+                        last_countdown = remaining_sec
+                        self.after(0, lambda sec=remaining_sec: self.status_label.configure(
+                            text=f"Status: Silence detected (Auto-stop in {sec}s)",
+                            text_color="#FFCC00"
+                        ))
+
+                    # Timeout reached
+                    if silence_duration >= MAX_SILENCE_SEC:
+                        self.after(0, self._on_silence_timeout)
+                        break
+
                 stream.accept_waveform(config.SAMPLE_RATE, chunk)
 
                 while self.asr.recognizer.is_ready(stream):
@@ -330,6 +363,17 @@ class CaecusApp(ctk.CTk):
                     last_text = text
 
             time.sleep(0.02)
+
+    def _on_silence_timeout(self):
+        if self.is_transcribing:
+            self.stop_mic_transcription()
+            self.status_label.configure(
+                text="Status: Stopped (10s Silence Timeout)",
+                text_color="#FFCC00"
+            )
+            self.after(2500, lambda: self.status_label.configure(
+                text="Status: Ready", text_color="green"
+            ))
 
     def _append_mic_text(self, new_text: str, previous_segment: str):
         current_content = self.textbox.get("1.0", "end-1c").rstrip()
