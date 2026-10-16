@@ -28,13 +28,7 @@ MAX_MEDIA_DURATION_SEC = 30
 
 class PreviewDialog(ctk.CTkFrame):
     def __init__(self, parent, on_confirm_callback, on_close_callback=None, **kwargs):
-        # Enforce fixed 460px width
-        kwargs["width"] = kwargs.get("width", 460)
         super().__init__(parent, fg_color="#1e1e1e", corner_radius=0, **kwargs)
-        
-        # Prevent children widgets from altering panel width
-        self.pack_propagate(False)
-        self.grid_propagate(False)
 
         self.on_confirm_callback = on_confirm_callback
         self.on_close_callback = on_close_callback
@@ -52,15 +46,28 @@ class PreviewDialog(ctk.CTkFrame):
         self._setup_ui()
 
     def show_file(self, file_path: str):
-        """Loads and renders a new file inside the fixed-size panel."""
+        """Loads and renders a new file inside the panel with strict widget state cleanup."""
+        # 1. Terminate running subprocesses and timers
         self._stop_media()
-        self.file_path = Path(file_path).resolve()
 
-        # Clear previous visual content
-        for child in self.canvas_frame.winfo_children():
+        # 2. Synchronously destroy viewport child widgets
+        for child in list(self.canvas_frame.winfo_children()):
             child.destroy()
 
+        # 3. Clean up stale canvas attributes
+        self.file_path = Path(file_path).resolve()
+        self.current_tk_img = None
+        self.canvas_image_id = None
+        if hasattr(self, "canvas"):
+            delattr(self, "canvas")
+
         self.header_label.configure(text=f"Preview - {self.file_path.name}")
+
+        # 4. Force geometry recalculation before drawing new media canvas
+        self.update_idletasks()
+        if hasattr(self.canvas_frame, "_parent_canvas"):
+            self.canvas_frame._parent_canvas.yview_moveto(0)
+
         self._render_visual_preview()
 
     def _setup_ui(self):
@@ -71,7 +78,7 @@ class PreviewDialog(ctk.CTkFrame):
         self.header_label = ctk.CTkLabel(
             header_frame,
             text="Document Preview",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ctk.CTkFont(size=16, weight="bold"),
             anchor="w"
         )
         self.header_label.pack(side="left", fill="x", expand=True)
@@ -80,25 +87,27 @@ class PreviewDialog(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(self, fg_color="transparent")
         btn_frame.pack(padx=15, pady=15, fill="x", side="bottom")
 
-        ctk.CTkButton(
+        self.cancel_btn = ctk.CTkButton(
             btn_frame,
             text="Cancel",
             fg_color="#3a3a3a",
             hover_color="#505050",
             command=self._hide_panel,
-            height=42,
-            font=ctk.CTkFont(size=13, weight="bold")
-        ).pack(side="left", padx=(0, 5), expand=True, fill="x")
+            height=44,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.cancel_btn.pack(side="left", padx=(0, 5), expand=True, fill="x")
 
-        ctk.CTkButton(
+        self.confirm_btn = ctk.CTkButton(
             btn_frame,
             text="Confirm and Transcribe",
             fg_color="#007ACC",
             hover_color="#005999",
             command=self._confirm,
-            height=42,
-            font=ctk.CTkFont(size=13, weight="bold")
-        ).pack(side="right", padx=(5, 0), expand=True, fill="x")
+            height=44,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.confirm_btn.pack(side="right", padx=(5, 0), expand=True, fill="x")
 
         # Scrollable Viewport
         self.canvas_frame = ctk.CTkScrollableFrame(self, fg_color="#141414", corner_radius=6)
@@ -142,7 +151,7 @@ class PreviewDialog(ctk.CTkFrame):
                         text=f"Displaying first {MAX_PDF_PAGES} of {total_pages} pages. Full file will be transcribed.",
                         font=ctk.CTkFont(size=12, weight="bold"),
                         text_color="#007ACC",
-                        wraplength=380
+                        wraplength=280
                     ).pack(pady=(10, 15))
 
         elif ext in {".docx", ".txt"}:
@@ -166,7 +175,7 @@ class PreviewDialog(ctk.CTkFrame):
                 text_color="#111111",
                 fg_color="#FFFFFF",
                 wrap="word",
-                height=320
+                height=260
             )
             tb.pack(padx=10, pady=10, fill="both", expand=True)
             tb.insert("1.0", text or "[ Document contains no extractable text ]")
@@ -176,7 +185,8 @@ class PreviewDialog(ctk.CTkFrame):
             self._render_media_card(ext)
 
     def _add_image_page(self, pil_image: Image.Image):
-        pil_image.thumbnail((380, 520), Image.Resampling.BILINEAR)
+        container_w = max(240, self.canvas_frame.winfo_width() - 40)
+        pil_image.thumbnail((container_w, 400), Image.Resampling.BILINEAR)
         ctk_img = ctk.CTkImage(light_image=pil_image, dark_image=pil_image, size=pil_image.size)
         ctk.CTkLabel(self.canvas_frame, image=ctk_img, text="").pack(pady=10, expand=True)
 
@@ -185,13 +195,13 @@ class PreviewDialog(ctk.CTkFrame):
         card.pack(padx=10, pady=10, fill="both", expand=True)
 
         self.is_audio = ext in {".wav", ".mp3"}
-        self.canvas = tk.Canvas(card, height=260, bg="#121212", highlightthickness=0)
+        self.canvas = tk.Canvas(card, height=220, bg="#121212", highlightthickness=0)
         self.canvas.pack(padx=10, pady=10, fill="both", expand=True)
 
         self.media_display = ctk.CTkLabel(
             card,
-            text=f"{self.file_path.name}\n\nPlayback Active - 0:30 remaining",
-            font=ctk.CTkFont(size=14)
+            text=f"{self.file_path.name}\n\nReady for preview playback",
+            font=ctk.CTkFont(size=13)
         )
         self.media_display.pack(pady=(0, 10))
 
@@ -201,8 +211,8 @@ class PreviewDialog(ctk.CTkFrame):
             command=self._toggle_media_playback,
             fg_color="#007ACC",
             hover_color="#005999",
-            height=42,
-            font=ctk.CTkFont(size=14, weight="bold")
+            height=38,
+            font=ctk.CTkFont(size=13, weight="bold")
         )
         self.play_btn.pack(pady=(0, 15), padx=15, fill="x")
 
@@ -270,8 +280,9 @@ class PreviewDialog(ctk.CTkFrame):
         if self.video_cap and self.video_cap.isOpened():
             ret, frame = self.video_cap.read()
             if ret:
-                c_w = self.canvas.winfo_width() or 380
-                c_h = self.canvas.winfo_height() or 260
+                self.canvas.update_idletasks()
+                c_w = max(100, self.canvas.winfo_width())
+                c_h = max(100, self.canvas.winfo_height())
                 
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(frame_rgb)
@@ -288,7 +299,7 @@ class PreviewDialog(ctk.CTkFrame):
 
         sec_left = int(MAX_MEDIA_DURATION_SEC - elapsed)
         self.media_display.configure(text=f"{self.file_path.name}\n\nPlayback Active - 0:{sec_left:02d} remaining")
-        self.timer_id = self.after(30, self._update_media_loop)
+        self.timer_id = self.after(33, self._update_media_loop)
 
     def _cleanup_handles(self):
         self.is_playing = False
@@ -300,7 +311,7 @@ class PreviewDialog(ctk.CTkFrame):
         if self.audio_process is not None:
             try:
                 self.audio_process.terminate()
-                self.audio_process.wait(timeout=0.2)
+                self.audio_process.wait(timeout=0.1)
             except Exception:
                 try:
                     self.audio_process.kill()
@@ -309,8 +320,11 @@ class PreviewDialog(ctk.CTkFrame):
             self.audio_process = None
 
         if self.video_cap is not None:
-            if self.video_cap.isOpened():
-                self.video_cap.release()
+            try:
+                if self.video_cap.isOpened():
+                    self.video_cap.release()
+            except Exception:
+                pass
             self.video_cap = None
 
         if self.audio_player is not None:
@@ -338,12 +352,16 @@ class PreviewDialog(ctk.CTkFrame):
                 )
             elif self.file_path:
                 self.media_display.configure(
-                    text=f"{self.file_path.name}\n\nPlayback Active - 0:30 remaining"
+                    text=f"{self.file_path.name}\n\nReady for preview playback"
                 )
 
     def _hide_panel(self):
         self._stop_media()
-        self.pack_forget()
+        if self.winfo_ismapped():
+            if self.winfo_manager() == "grid":
+                self.grid_forget()
+            else:
+                self.pack_forget()
         if self.on_close_callback:
             self.on_close_callback()
 

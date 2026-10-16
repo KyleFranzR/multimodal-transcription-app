@@ -21,21 +21,18 @@ ctk.set_default_color_theme("blue")
 
 class CaecusApp(ctk.CTk):
     # --- Braille Page Constraint Config (BANA A4 Standard) ---
-    # 28 cells/line * 27 lines/page = 756 characters per page max
     MAX_BRAILLE_CELLS = 756
 
     def __init__(self):
         super().__init__()
 
         self.title("Caecus - Multimodal Braille Transcription")
-        self.geometry("800x480")  # Standard Pi LCD touch resolution
-        self.minsize(600, 400)
 
-        # Kiosk mode for Pi touchscreens
+        # Fullscreen kiosk mode (adapts dynamically to any display resolution)
         self.attributes("-fullscreen", True)
         self.bind("<Control-Alt-q>", self._exit_kiosk)
 
-        # Accessibility Font Definitions (OpenDyslexic with Arial fallback)
+        # Accessibility Font Definitions (OpenDyslexic)
         self.accessible_font_family = "OpenDyslexic"
         self.main_text_font = ctk.CTkFont(family=self.accessible_font_family, size=22, weight="normal")
         self.header_title_font = ctk.CTkFont(family=self.accessible_font_family, size=28, weight="bold")
@@ -56,7 +53,7 @@ class CaecusApp(ctk.CTk):
         self.is_transcribing = False
         self.cancel_event = threading.Event()
         self._last_touch_y = 0
-        self._last_scroll_time = 0  # Scroll throttle timer for Pi 5
+        self._last_scroll_time = 0
 
         self._setup_ui()
 
@@ -67,30 +64,37 @@ class CaecusApp(ctk.CTk):
         self.destroy()
 
     def _setup_ui(self):
-        # Master Layout Container
-        self.master_container = ctk.CTkFrame(self, fg_color="transparent")
-        self.master_container.pack(fill="both", expand=True)
+        # Configure root window grid to span 100% display area
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)  # Main Content (100% when preview hidden)
+        self.grid_columnconfigure(1, weight=0)  # Preview Panel (0 weight when hidden)
 
-        # Main Content Area (Left side)
-        self.main_content_frame = ctk.CTkFrame(self.master_container, fg_color="transparent")
-        self.main_content_frame.pack(side="left", fill="both", expand=True)
+        # Main Content Area Frame (Edge-to-Edge)
+        self.main_content_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self.main_content_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
 
-        # Embedded Preview Side Panel (Right side - set width to 460)
+        # Flexible Row Weights to enforce vertical expansion without truncation
+        self.main_content_frame.grid_rowconfigure(0, weight=0)  # Header
+        self.main_content_frame.grid_rowconfigure(1, weight=1)  # Textboxes (Takes available space)
+        self.main_content_frame.grid_rowconfigure(2, weight=0)  # Progress Bar
+        self.main_content_frame.grid_rowconfigure(3, weight=0)  # Controls
+        self.main_content_frame.grid_columnconfigure(0, weight=1)
+
+        # Embedded Preview Side Panel
         self.preview_panel = PreviewDialog(
-            self.master_container,
+            self,
             on_confirm_callback=self._start_file_processing,
-            on_close_callback=self._on_preview_closed,
-            width=460
+            on_close_callback=self._on_preview_closed
         )
 
         # --- Header / Status Frame ---
         self.header_frame = ctk.CTkFrame(self.main_content_frame)
-        self.header_frame.pack(padx=15, pady=(15, 10), fill="x")
+        self.header_frame.grid(row=0, column=0, sticky="ew", pady=(0, 5))
 
         self.title_label = ctk.CTkLabel(
             self.header_frame, text="Caecus", font=self.header_title_font
         )
-        self.title_label.pack(side="left", padx=15, pady=12)
+        self.title_label.pack(side="left", padx=15, pady=8)
 
         self.status_label = ctk.CTkLabel(
             self.header_frame,
@@ -98,22 +102,26 @@ class CaecusApp(ctk.CTk):
             font=self.header_status_font,
             text_color="orange",
         )
-        self.status_label.pack(side="right", padx=15, pady=12)
+        self.status_label.pack(side="right", padx=15, pady=8)
 
-        # --- Dual Text Display Area (High Readability 50/50 Split) ---
+        # --- Dual Text Display Area (50/50 Split) ---
         self.textboxes_container = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
-        self.textboxes_container.pack(padx=15, pady=5, fill="both", expand=True)
+        self.textboxes_container.grid(row=1, column=0, sticky="nsew", pady=5)
+        
+        self.textboxes_container.grid_rowconfigure(0, weight=1)
+        self.textboxes_container.grid_rowconfigure(1, weight=1)
+        self.textboxes_container.grid_columnconfigure(0, weight=1)
 
-        # Top Textbox: Raw Text Stream / File Output (High Visibility)
+        # Top Textbox: Raw Text Stream Output
         self.textbox = ctk.CTkTextbox(
             self.textboxes_container,
             font=self.main_text_font,
             wrap="word",
             activate_scrollbars=True
         )
-        self.textbox.pack(fill="both", expand=True, pady=(0, 6))
+        self.textbox.grid(row=0, column=0, sticky="nsew", pady=(0, 3))
 
-        # Bottom Textbox: Braille Pattern Output Placeholder
+        # Bottom Textbox: Braille Output Placeholder
         self.braille_textbox = ctk.CTkTextbox(
             self.textboxes_container,
             font=self.main_text_font,
@@ -121,33 +129,33 @@ class CaecusApp(ctk.CTk):
             text_color="#A0A0A0",
             activate_scrollbars=True
         )
-        self.braille_textbox.pack(fill="both", expand=True, pady=(6, 0))
+        self.braille_textbox.grid(row=1, column=0, sticky="nsew", pady=(3, 0))
         self.braille_textbox.insert("1.0", "[ Braille pattern output placeholder ]")
         self.braille_textbox.configure(state="disabled")
 
-        # Disable undo stack on underlying tk widgets to save RAM & CPU cycles
+        # Disable undo stack to save RAM & CPU cycles
         for tb in (self.textbox, self.braille_textbox):
             try:
                 tb._textbox.configure(undo=False)
             except Exception:
                 pass
 
-        # Bind touchscreen drag gesture to both textboxes
+        # Bind touchscreen drag scroll
         for tb in (self.textbox, self.braille_textbox):
             tb.bind("<Button-1>", lambda e, widget=tb: self._start_touch_scroll(e, widget), add="+")
             tb.bind("<B1-Motion>", lambda e, widget=tb: self._touch_scroll(e, widget), add="+")
 
         # --- Progress Indicator Frame ---
         self.progress_frame = ctk.CTkFrame(self.main_content_frame, fg_color="transparent")
-        self.progress_frame.pack(padx=15, pady=(0, 5), fill="x")
+        self.progress_frame.grid(row=2, column=0, sticky="ew", pady=(2, 2))
 
-        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=18)
-        self.progress_bar.pack(fill="x", padx=5)
+        self.progress_bar = ctk.CTkProgressBar(self.progress_frame, height=14)
+        self.progress_bar.pack(fill="x", padx=2)
         self.progress_bar.set(0)
 
         # --- Controls Frame ---
         self.controls_frame = ctk.CTkFrame(self.main_content_frame)
-        self.controls_frame.pack(padx=15, pady=(5, 15), fill="x")
+        self.controls_frame.grid(row=3, column=0, sticky="ew", pady=(5, 0))
 
         self.toggle_btn = ctk.CTkButton(
             self.controls_frame,
@@ -156,10 +164,10 @@ class CaecusApp(ctk.CTk):
             state="disabled",
             fg_color="green",
             hover_color="darkgreen",
-            height=54,
+            height=48,
             font=self.button_font,
         )
-        self.toggle_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
+        self.toggle_btn.pack(side="left", padx=8, pady=8, expand=True, fill="x")
 
         self.file_btn = ctk.CTkButton(
             self.controls_frame,
@@ -168,10 +176,10 @@ class CaecusApp(ctk.CTk):
             state="disabled",
             fg_color="#1f538d",
             hover_color="#14375e",
-            height=54,
+            height=48,
             font=self.button_font,
         )
-        self.file_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
+        self.file_btn.pack(side="left", padx=8, pady=8, expand=True, fill="x")
 
         self.cancel_btn = ctk.CTkButton(
             self.controls_frame,
@@ -179,7 +187,7 @@ class CaecusApp(ctk.CTk):
             command=self.cancel_file_processing,
             fg_color="darkred",
             hover_color="#8B0000",
-            height=54,
+            height=48,
             font=self.button_font,
         )
 
@@ -189,12 +197,12 @@ class CaecusApp(ctk.CTk):
             command=self.clear_text,
             fg_color="gray",
             hover_color="#404040",
-            height=54,
+            height=48,
             font=self.button_font,
         )
-        self.clear_btn.pack(side="right", padx=10, pady=10)
+        self.clear_btn.pack(side="right", padx=8, pady=8)
 
-    # --- Throttled Touch Gesture Scroll ---
+    # --- Touch Gesture Scroll ---
     def _start_touch_scroll(self, event, target_textbox=None):
         self._last_touch_y = event.y
 
@@ -233,10 +241,6 @@ class CaecusApp(ctk.CTk):
 
     # --- Centralized Text Buffer Capping Manager ---
     def _append_text_safely(self, new_text: str) -> bool:
-        """
-        Ensures total text inside CTkTextbox NEVER exceeds MAX_BRAILLE_CELLS (756 chars).
-        Returns True if inserted cleanly, False if capacity was reached/truncated.
-        """
         current_content = self.textbox.get("1.0", "end-1c")
         current_len = len(current_content)
 
@@ -257,7 +261,6 @@ class CaecusApp(ctk.CTk):
         else:
             capacity_reached = False
 
-        # Stream insertion in 500-character chunks
         chunk_size = 500
         full_len = len(text_to_add)
 
@@ -314,8 +317,7 @@ class CaecusApp(ctk.CTk):
         stream = self.asr.recognizer.create_stream()
         last_text = ""
 
-        # Silence Auto-Stop Config
-        SILENCE_THRESHOLD_RMS = 0.01  # 1% sound energy threshold for sounddevice float32
+        SILENCE_THRESHOLD_RMS = 0.01
         MAX_SILENCE_SEC = 10.0
         last_audio_time = time.time()
         last_countdown = -1
@@ -325,7 +327,6 @@ class CaecusApp(ctk.CTk):
             now = time.time()
 
             if chunk is not None:
-                # Track silence vs speech
                 if rms >= SILENCE_THRESHOLD_RMS:
                     last_audio_time = now
                     if last_countdown != -1:
@@ -337,7 +338,6 @@ class CaecusApp(ctk.CTk):
                     silence_duration = now - last_audio_time
                     remaining_sec = max(0, int(MAX_SILENCE_SEC - silence_duration))
 
-                    # Update countdown status when silent for > 1 sec
                     if silence_duration >= 1.0 and remaining_sec != last_countdown:
                         last_countdown = remaining_sec
                         self.after(0, lambda sec=remaining_sec: self.status_label.configure(
@@ -345,7 +345,6 @@ class CaecusApp(ctk.CTk):
                             text_color="#FFCC00"
                         ))
 
-                    # Timeout reached
                     if silence_duration >= MAX_SILENCE_SEC:
                         self.after(0, self._on_silence_timeout)
                         break
@@ -386,7 +385,7 @@ class CaecusApp(ctk.CTk):
         
         self._append_text_safely(new_text)
 
-    # --- File Import & Side Panel Logic ---
+    # --- File Import & Dynamic Side Panel Split Logic ---
     def open_file_dialog(self):
         current_len = len(self.textbox.get("1.0", "end-1c"))
         if current_len >= self.MAX_BRAILLE_CELLS:
@@ -408,20 +407,30 @@ class CaecusApp(ctk.CTk):
         if not file_path:
             return
 
-        # Slide out Side Panel on the right and load preview
-        self.preview_panel.pack(side="right", fill="y", expand=False)
+        # Explicitly hide old panel state first to reset parent geometry
+        if self.preview_panel.winfo_ismapped():
+            self.preview_panel.grid_forget()
+
+        # Enforce proportional split allocation (60% Main / 40% Preview)
+        self.grid_columnconfigure(0, weight=6)
+        self.grid_columnconfigure(1, weight=4)
+
+        self.preview_panel.grid(row=0, column=1, sticky="nsew", padx=(0, 10), pady=10)
+        self.update_idletasks()  # Force immediate layout refresh
         self.preview_panel.show_file(file_path)
 
     def _on_preview_closed(self):
+        # Reset grid weights so main content expands to 100% full screen
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=0)
         self.status_label.configure(text="Status: Ready", text_color="green")
 
     def _start_file_processing(self, file_path: str):
         self.preview_panel._hide_panel()
         self.cancel_event.clear()
 
-        # Swap Import File button for Cancel button
         self.file_btn.pack_forget()
-        self.cancel_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
+        self.cancel_btn.pack(side="left", padx=8, pady=8, expand=True, fill="x")
         self.toggle_btn.configure(state="disabled")
 
         self.progress_bar.set(0)
@@ -481,7 +490,7 @@ class CaecusApp(ctk.CTk):
 
     def _reset_control_buttons(self):
         self.cancel_btn.pack_forget()
-        self.file_btn.pack(side="left", padx=10, pady=10, expand=True, fill="x")
+        self.file_btn.pack(side="left", padx=8, pady=8, expand=True, fill="x")
         self.toggle_btn.configure(state="normal")
         self.file_btn.configure(state="normal")
 
@@ -489,7 +498,6 @@ class CaecusApp(ctk.CTk):
         self.progress_bar.set(1.0)
 
         if result and result.strip():
-            # Flatten line breaks into a single paragraph
             single_paragraph = " ".join(result.splitlines()).strip()
             while "  " in single_paragraph:
                 single_paragraph = single_paragraph.replace("  ", " ")
