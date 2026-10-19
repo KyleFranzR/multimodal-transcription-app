@@ -29,7 +29,12 @@ class CaecusApp(ctk.CTk):
         self.title("Caecus - Multimodal Braille Transcription")
 
         # Fullscreen kiosk mode (adapts dynamically to any display resolution)
-        self.attributes("-fullscreen", True)
+        # Kiosk fullscreen must be applied after CTk finishes window setup
+        geometry = os.environ.get("CAECUS_GEOMETRY")  # e.g. 1024x600 for a windowed test
+        if geometry:
+            self.geometry(geometry)
+        else:
+            self.after(1000, lambda: self.attributes("-fullscreen", True))
         self.bind("<Control-Alt-q>", self._exit_kiosk)
 
         # Accessibility Font Definitions (OpenDyslexic)
