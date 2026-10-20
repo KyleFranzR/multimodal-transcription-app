@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 import pytesseract
 
 import config
@@ -39,12 +39,23 @@ class ImageProcessor:
             progress_callback(0.2)
 
         with Image.open(path) as img:
-            rgb_img = img.convert("RGB")
+            img = ImageOps.exif_transpose(img)  # honour camera rotation
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGBA")
+                white = Image.new("RGBA", img.size, (255, 255, 255, 255))
+                white.alpha_composite(img)  # transparent pixels become white, not black
+                img = white
+            gray = img.convert("L")
+            longest = max(gray.size)
+            if longest < 1000:  # small text OCRs badly; enlarge
+                gray = gray.resize((gray.width * 2, gray.height * 2), Image.Resampling.LANCZOS)
+            elif longest > 3000:
+                gray.thumbnail((3000, 3000), Image.Resampling.BILINEAR)
 
             if is_cancelled and is_cancelled():
                 return ""
 
-            text = pytesseract.image_to_string(rgb_img)
+            text = pytesseract.image_to_string(gray)
 
         if progress_callback:
             progress_callback(1.0)
