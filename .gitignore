@@ -15,6 +15,7 @@ caecus/storage/*
 !caecus/storage/.gitkeep
 storage/*
 !storage/.gitkeep
+!storage/samples/
 
 # IDE & OS files
 .vscode/

@@ -103,17 +103,28 @@ caecus/models/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8
 
 ## Usage
 
-You can launch the application directly using Python module execution:
+Run these from the project root with the virtual environment active (after `pip install -e .`). Both interfaces start in fullscreen kiosk mode; press `Ctrl+Alt+Q` to exit.
 
-```bash
-python -m caecus.main
-```
+| Interface | Command | Notes |
+|---|---|---|
+| **New GUI** (guided Attach, Preview, Edit text flow, follows the Figma design) | `python -m caecus.ui.app` | In development |
+| **Old GUI** (single screen with live microphone transcription) | `python -m caecus.main` | Also available as the `caecus` command |
 
-Or via the installed CLI executable entry point:
+To test in a window instead of fullscreen, set `CAECUS_GEOMETRY`, for example `CAECUS_GEOMETRY=1024x600 python -m caecus.ui.app`.
 
-```bash
-caecus
-```
+### Feature status
+
+| Feature | Old GUI | New GUI |
+|---|---|---|
+| Live microphone transcription | Yes | Planned |
+| Image, document and audio files | Yes | Yes |
+| Video files | Yes | Yes (still-frame preview, playback planned) |
+| Preview before converting | Side panel | Full-screen step |
+| Copy and save the text | No | Yes |
+| Typed text input | No | Yes |
+| Braille output | Placeholder | Planned |
+
+Audio preview in the new GUI plays through `ffplay` (`sudo apt install ffmpeg` on Raspberry Pi OS).
 
 ---
 
