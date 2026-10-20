@@ -6,7 +6,7 @@ import customtkinter as ctk
 from caecus.ui import theme as T
 from caecus.ui.screens.base import Screen
 from caecus.ui.widgets import Card, primary_button, secondary_button
-
+from caecus.ui.widgets import Card, enable_undo, primary_button, secondary_button
 
 class EditScreen(Screen):
     name = "edit"
@@ -35,6 +35,7 @@ class EditScreen(Screen):
         self.box = ctk.CTkTextbox(card, wrap="word", fg_color=T.CARD, text_color=T.TEXT,
                                   font=T.font(16), border_width=0)
         self.box.grid(row=2, column=0, sticky="nsew", padx=12, pady=(8, 10))
+        enable_undo(self.box)
 
         self.actions.grid_columnconfigure(2, weight=1)
         secondary_button(self.actions, "Copy", self._copy, width=100).grid(row=0, column=0, padx=(0, 8))
@@ -48,6 +49,7 @@ class EditScreen(Screen):
         self.source_label.configure(text=source if source == "Typed text" else f"From {source}")
         self.box.delete("1.0", "end")
         self.box.insert("1.0", text)
+        self.box.edit_reset()  # no undo after load
         self.box.see("1.0")
         if source == "Typed text":
             self.app.status.set("Text ready  |  Convert another returns to Import / attach", "ok")

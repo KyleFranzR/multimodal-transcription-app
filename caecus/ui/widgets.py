@@ -172,3 +172,27 @@ class Waveform(_SelfPainting):
         if idx != self._idx:
             self._idx = idx
             self.redraw()
+
+def enable_undo(box):
+    """Ctrl+Z = undo, Ctrl+Y (or Ctrl+Shift+Z) = redo, for a CTkTextbox."""
+    tb = box._textbox  # ang tkinter Text sa loob ng CTkTextbox
+    tb.configure(undo=True, autoseparators=True, maxundo=-1)
+
+    def undo(_event=None):
+        try:
+            tb.edit_undo()
+        except tk.TclError:
+            pass  # wala nang ma-undo
+        return "break"
+
+    def redo(_event=None):
+        try:
+            tb.edit_redo()
+        except tk.TclError:
+            pass  # wala nang ma-redo
+        return "break"
+
+    for key in ("<Control-z>", "<Control-Z>"):
+        box.bind(key, undo)
+    for key in ("<Control-y>", "<Control-Y>", "<Control-Shift-z>", "<Control-Shift-Z>"):
+        box.bind(key, redo)
