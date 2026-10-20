@@ -4,7 +4,10 @@ from pathlib import Path
 import customtkinter as ctk
 
 from caecus.ui import theme as T
+from caecus.ui.services import Transcriber
 from caecus.ui.screens.attach import AttachScreen
+from caecus.ui.screens.edit import EditScreen
+from caecus.ui.screens.preview import PreviewScreen
 from caecus.ui.widgets import StatusBar, StepProgress
 
 ctk.set_appearance_mode("Light")
@@ -20,6 +23,7 @@ class CaecusApp(ctk.CTk):
         T.SCALE = max(1.0, self.winfo_screenheight() / T.DESIGN_H)
         ctk.set_widget_scaling(T.SCALE)
         self.last_dir = str(Path.home())
+        self.transcriber = Transcriber()
 
         # Kiosk fullscreen must be applied after CTk finishes window setup.
         geometry = os.environ.get("CAECUS_GEOMETRY")  # e.g. 1024x600 for a windowed test
@@ -31,11 +35,13 @@ class CaecusApp(ctk.CTk):
 
         self._build_chrome()
         self.screens = {}
-        for cls in (AttachScreen,):
+        for cls in (AttachScreen, PreviewScreen, EditScreen):
             self.screens[cls.name] = cls(self)
         self._current = None
         self.show("attach")
         self.after(1500, self._repaint)
+        self.transcriber.start_loading()
+        self.after(300, self._check_asr)
 
     def _build_chrome(self):
         self.grid_columnconfigure(0, weight=1)
@@ -75,12 +81,21 @@ class CaecusApp(ctk.CTk):
             self._current.grid_remove()
             self._current.on_hide()
         screen = self.screens[name]
-        self.heading_label.configure(text=screen.heading)
-        self.subheading_label.configure(text=screen.subheading)
-        self.progress.set_step(screen.step)
         screen.grid(row=0, column=0, sticky="nsew")
         self._current = screen
         screen.on_show(**ctx)
+        self.heading_label.configure(text=screen.heading)
+        self.subheading_label.configure(text=screen.subheading)
+        self.progress.set_step(screen.step)
+        self.repaint_soon()
+
+    def _check_asr(self):
+        if self.transcriber.asr_state in ("idle", "loading"):
+            self.after(300, self._check_asr)
+        elif self._current is not None and self._current.name == "attach":
+            self._current.refresh_status()
+
+    def repaint_soon(self):
         self.after(60, self._repaint)
 
     def _repaint(self):

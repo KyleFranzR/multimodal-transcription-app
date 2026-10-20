@@ -112,7 +112,19 @@ class AttachScreen(Screen):
 
     # ---- actions (navigation is wired up in later slices) --------------
     def on_show(self, **ctx):
-        self.app.status.set("Ready for import  |  One attachment at a time")
+        self.entry.delete("1.0", "end")
+        self._placeholder_on = False
+        self._entry_focus_out()
+        self.refresh_status()
+
+    def refresh_status(self):
+        t = self.app.transcriber
+        if t.asr_state == "error":
+            self.app.status.set(f"Speech engine failed to load: {t.asr_error}"[:150], "error")
+        elif t.asr_state == "ready":
+            self.app.status.set("Ready for import  |  Speech engine ready", "ok")
+        else:
+            self.app.status.set("Loading speech engine...  |  Documents, images and typed text are ready", "warn")
 
     def _browse(self, kind, types):
         path = filedialog.askopenfilename(
@@ -120,7 +132,7 @@ class AttachScreen(Screen):
         if not path:
             return
         self.app.last_dir = str(Path(path).parent)
-        self.app.status.set(f"Selected {Path(path).name}  |  preview screen comes in the next slice", "ok")
+        self.app.show("preview", path=path, kind=kind)
 
     def _speak(self):
         self.app.status.set("Speech capture screen comes in a later slice", "warn")
@@ -130,4 +142,4 @@ class AttachScreen(Screen):
         if not text.strip():
             self.app.status.set("Type or paste some text first", "warn")
             return
-        self.app.status.set(f"Typed text ready ({len(text)} characters)  |  edit screen comes later", "ok")
+        self.app.show("edit", text=text, source="Typed text")
