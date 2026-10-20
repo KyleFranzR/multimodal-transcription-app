@@ -9,7 +9,13 @@ from caecus.ui.tasks import Task
 from caecus.ui.player import AudioPlayer, compute_peaks, decode_overview, fmt_time
 from caecus.ui.widgets import Card, Waveform, primary_button, secondary_button
 
+import tkinter as tk
+from PIL import Image, ImageOps, ImageTk
+
 MAX_TEXT_CHARS = 3000
+import cv2
+import numpy as np
+VIDEO_BOX = (480, 150)  # fixed preview size (logical px, 16:9)
 HEADINGS = {
     "image": ("Preview image", "Check your attachment before converting."),
     "document": ("Preview document", "Read the page before converting."),
@@ -38,6 +44,8 @@ class PreviewScreen(Screen):
         self._pdf = None
         self._task = None
         self._player, self._poll_id, self._dragging, self._was_playing = None, None, False, False
+        self.wave = None
+        self._cap, self._fps, self._frames, self._last_frame, self._vid_label = None, 0.0, 0, -1, None
         ws = self.workspace
         ws.grid_columnconfigure(0, weight=1)
         ws.grid_rowconfigure(0, weight=1)
@@ -63,6 +71,83 @@ class PreviewScreen(Screen):
         self.change_btn.grid(row=0, column=0, sticky="w")
         self.convert_btn = primary_button(self.actions, "Convert to text", self._convert, width=180)
         self.convert_btn.grid(row=0, column=2, sticky="e")
+
+    
+    def _draw_image(self):
+        if not hasattr(self, "_image_canvas"):
+            return
+
+        img = self._image_original
+        width = max(1, int(img.width * self._image_zoom))
+        height = max(1, int(img.height * self._image_zoom))
+
+        resampling = (
+            Image.Resampling.LANCZOS
+            if self._image_zoom > 1
+            else Image.Resampling.BILINEAR
+        )
+
+        shown = img.resize((width, height), resampling)
+        self._image_photo = ImageTk.PhotoImage(shown)
+
+        self._image_canvas.delete("all")
+
+        # Center the image when it fits inside the preview area.
+        canvas_w = self._image_canvas.winfo_width()
+        canvas_h = self._image_canvas.winfo_height()
+
+        x = max(0, (canvas_w - width) // 2)
+        y = max(0, (canvas_h - height) // 2)
+
+        self._image_canvas.create_image(
+            x, y,
+            anchor="nw",
+            image=self._image_photo
+        )
+
+        self._image_canvas.configure(
+            scrollregion=(
+                0, 0,
+                max(canvas_w, width),
+                max(canvas_h, height)
+            )
+        )
+
+        self._zoom_label.configure(
+            text=f"{self._image_zoom * 100:.0f}%"
+        )
+
+
+
+    def _zoom_image(self, factor):
+        self._image_zoom = max(
+            0.1, min(5.0, self._image_zoom * factor)
+        )
+        self._draw_image()
+
+
+    def _reset_image_zoom(self):
+        self._image_zoom = 1.0
+        self._draw_image()
+
+
+    def _on_image_canvas_resize(self, event):
+        if not hasattr(self, "_image_original"):
+            return
+
+        if self._image_zoom == 1.0:
+            img = self._image_original
+            available_w = max(1, event.width)
+            available_h = max(1, event.height)
+
+            scale = min(
+                available_w / img.width,
+                available_h / img.height,
+                1.0
+            )
+
+            self._image_zoom = scale
+            self._draw_image()
 
     # ---- lifecycle -----------------------------------------------------
     def on_show(self, path=None, kind=None, **ctx):
@@ -125,50 +210,287 @@ class PreviewScreen(Screen):
     def _render_image(self, size):
         src = Image.open(self.path)
         fmt = (src.format or self.path.suffix.lstrip(".")).upper()
-        img = ImageOps.exif_transpose(src)
-        self.meta_label.configure(text=f"{fmt} image  |  {img.width} x {img.height}  |  {size}")
-        self._fit_image(img, self.body)
+        self._image_original = ImageOps.exif_transpose(src).copy()
+        self._image_zoom = 1.0
 
+        self.meta_label.configure(
+            text=f"{fmt} image  |  {self._image_original.width} x "
+                f"{self._image_original.height}  |  {size}"
+        )
+
+        toolbar = ctk.CTkFrame(self.body, fg_color="transparent")
+        toolbar.pack(fill="x", padx=12, pady=8)
+
+        secondary_button(
+            toolbar, "−", lambda: self._zoom_image(0.8), width=44
+        ).pack(side="left", padx=4)
+
+        secondary_button(
+            toolbar, "+", lambda: self._zoom_image(1.25), width=44
+        ).pack(side="left", padx=4)
+
+        secondary_button(
+            toolbar, "Reset", self._reset_image_zoom, width=80
+        ).pack(side="left", padx=4)
+
+        self._zoom_label = ctk.CTkLabel(
+            toolbar, text="100%", font=T.font(12), text_color=T.MUTED
+        )
+        self._zoom_label.pack(side="left", padx=10)
+
+        viewer = ctk.CTkFrame(self.body, fg_color=T.BG)
+        viewer.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+
+        viewer.grid_rowconfigure(0, weight=1)
+        viewer.grid_columnconfigure(0, weight=1)
+
+        self._image_canvas = tk.Canvas(
+            viewer,
+            background=T.BG,
+            highlightthickness=0
+        )
+        self._image_canvas.grid(row=0, column=0, sticky="nsew")
+
+        y_scroll = ctk.CTkScrollbar(
+            viewer, orientation="vertical",
+            command=self._image_canvas.yview
+        )
+        y_scroll.grid(row=0, column=1, sticky="ns")
+
+        x_scroll = ctk.CTkScrollbar(
+            viewer, orientation="horizontal",
+            command=self._image_canvas.xview
+        )
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        self._image_canvas.configure(
+            xscrollcommand=x_scroll.set,
+            yscrollcommand=y_scroll.set
+        )
+
+        self._image_canvas.bind(
+            "<Configure>", self._on_image_canvas_resize
+        )
+
+        self._draw_image()
+
+    
     def _render_pdf(self, size):
         import pymupdf
+
         self._pdf = pymupdf.open(self.path)
         self._page, self._pages = 0, len(self._pdf)
+        self._pdf_zoom = 1.0
+
         plural = "s" if self._pages != 1 else ""
-        self.meta_label.configure(text=f"PDF document  |  {self._pages} page{plural}  |  {size}")
+        self.meta_label.configure(
+            text=f"PDF document  |  {self._pages} page{plural}  |  {size}"
+        )
+
         self.body.grid_columnconfigure(0, weight=1)
         self.body.grid_columnconfigure(1, weight=0)
         self.body.grid_rowconfigure(0, weight=1)
-        self.page_holder = ctk.CTkFrame(self.body, fg_color="transparent")
-        self.page_holder.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
+
+        self.page_holder = ctk.CTkFrame(
+            self.body, fg_color="transparent"
+        )
+        self.page_holder.grid(
+            row=0, column=0, sticky="nsew", padx=8, pady=8
+        )
+        self.page_holder.grid_rowconfigure(0, weight=1)
+        self.page_holder.grid_columnconfigure(0, weight=1)
+
+        self._pdf_canvas = tk.Canvas(
+            self.page_holder,
+            background=T.BG,
+            highlightthickness=0
+        )
+        self._pdf_canvas.grid(row=0, column=0, sticky="nsew")
+
+        y_scroll = ctk.CTkScrollbar(
+            self.page_holder,
+            orientation="vertical",
+            command=self._pdf_canvas.yview
+        )
+        y_scroll.grid(row=0, column=1, sticky="ns")
+
+        x_scroll = ctk.CTkScrollbar(
+            self.page_holder,
+            orientation="horizontal",
+            command=self._pdf_canvas.xview
+        )
+        x_scroll.grid(row=1, column=0, sticky="ew")
+
+        self._pdf_canvas.configure(
+            xscrollcommand=x_scroll.set,
+            yscrollcommand=y_scroll.set
+        )
+
         nav = ctk.CTkFrame(self.body, fg_color="transparent")
         nav.grid(row=0, column=1, sticky="ns", padx=(0, 24))
         nav.grid_rowconfigure((0, 2), weight=1)
+
         inner = ctk.CTkFrame(nav, fg_color="transparent")
         inner.grid(row=1, column=0)
-        self.page_label = ctk.CTkLabel(inner, text="", font=T.font(14, "bold"), text_color=T.TEXT)
+
+        self.page_label = ctk.CTkLabel(
+            inner, text="", font=T.font(14, "bold"),
+            text_color=T.TEXT
+        )
         self.page_label.pack(pady=(0, 8))
+
         arrows = ctk.CTkFrame(inner, fg_color="transparent")
         arrows.pack()
-        self.prev_btn = secondary_button(arrows, "<", lambda: self._turn(-1), width=48)
+
+        self.prev_btn = secondary_button(
+            arrows, "<", lambda: self._turn(-1), width=48
+        )
         self.prev_btn.pack(side="left", padx=4)
-        self.next_btn = secondary_button(arrows, ">", lambda: self._turn(1), width=48)
+
+        self.next_btn = secondary_button(
+            arrows, ">", lambda: self._turn(1), width=48
+        )
         self.next_btn.pack(side="left", padx=4)
-        ctk.CTkLabel(inner, text="Fit page", font=T.font(12), text_color=T.MUTED).pack(pady=(8, 0))
-        self._show_page()
+
+        ctk.CTkLabel(
+            inner, text="Zoom", font=T.font(12),
+            text_color=T.MUTED
+        ).pack(pady=(16, 6))
+
+        secondary_button(
+            inner, "+", lambda: self._zoom_pdf(1.25), width=100
+        ).pack(pady=3)
+
+        secondary_button(
+            inner, "−", lambda: self._zoom_pdf(0.8), width=100
+        ).pack(pady=3)
+
+        secondary_button(
+            inner, "Fit page", self._fit_pdf_page, width=100
+        ).pack(pady=(8, 3))
+
+        self._pdf_zoom_label = ctk.CTkLabel(
+            inner, text="100%", font=T.font(12),
+            text_color=T.MUTED
+        )
+        self._pdf_zoom_label.pack(pady=(4, 0))
+
+        self._pdf_canvas.bind(
+            "<Configure>", self._on_pdf_canvas_resize
+        )
+
+        self.after_idle(self._fit_pdf_page)
+
 
     def _turn(self, delta):
         self._page = min(max(self._page + delta, 0), self._pages - 1)
         self._show_page()
 
+    
+    def _zoom_pdf(self, factor):
+        self._pdf_zoom = max(
+            0.25, min(4.0, self._pdf_zoom * factor)
+        )
+        self._show_page()
+
+
+    def _fit_pdf_page(self):
+        if self._pdf is None or not hasattr(self, "_pdf_canvas"):
+            return
+
+        self.update_idletasks()
+
+        page = self._pdf[self._page]
+        rect = page.rect
+
+        available_w = max(1, self._pdf_canvas.winfo_width() - 12)
+        available_h = max(1, self._pdf_canvas.winfo_height() - 12)
+
+        self._pdf_zoom = min(
+            available_w / (rect.width * 100 / 72),
+            available_h / (rect.height * 100 / 72)
+        )
+
+        self._pdf_zoom = max(0.25, min(4.0, self._pdf_zoom))
+        self._show_page()
+
+
+    def _on_pdf_canvas_resize(self, _event):
+        # Keep the current zoom when the preview area changes size.
+        if self._pdf is not None:
+            self._show_page()
+
+
     def _show_page(self):
-        for child in self.page_holder.winfo_children():
-            child.destroy()
-        pix = self._pdf[self._page].get_pixmap(dpi=100)
-        img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        self._fit_image(img, self.page_holder)
-        self.page_label.configure(text=f"Page {self._page + 1} of {self._pages}")
-        self.prev_btn.configure(state="normal" if self._page > 0 else "disabled")
-        self.next_btn.configure(state="normal" if self._page < self._pages - 1 else "disabled")
+        
+        if self._pdf is None:
+            return
+
+        # Use the current zoom value when rendering the PDF.
+        zoom = self._pdf_zoom
+        dpi = max(25, int(100 * zoom))
+
+        pix = self._pdf[self._page].get_pixmap(
+            dpi=dpi,
+            alpha=False
+        )
+
+        img = Image.frombytes(
+            "RGB",
+            (pix.width, pix.height),
+            pix.samples
+        )
+
+        self._pdf_photo = ImageTk.PhotoImage(img)
+
+        canvas = self._pdf_canvas
+
+        # Clear the previous page image without deleting the canvas
+        # or its scrollbars.
+        canvas.delete("pdf_page")
+
+        canvas_w = max(1, canvas.winfo_width())
+        canvas_h = max(1, canvas.winfo_height())
+
+        # Center the page if it fits; otherwise allow scrolling.
+        x = max(0, (canvas_w - img.width) // 2)
+        y = max(0, (canvas_h - img.height) // 2)
+
+        canvas.create_image(
+            x,
+            y,
+            anchor="nw",
+            image=self._pdf_photo,
+            tags="pdf_page"
+        )
+
+        canvas.configure(
+            scrollregion=(
+                0,
+                0,
+                max(canvas_w, img.width),
+                max(canvas_h, img.height)
+            )
+        )
+
+        self.page_label.configure(
+            text=f"Page {self._page + 1} of {self._pages}"
+        )
+
+        self.prev_btn.configure(
+            state="normal" if self._page > 0 else "disabled"
+        )
+
+        self.next_btn.configure(
+            state="normal"
+            if self._page < self._pages - 1
+            else "disabled"
+        )
+
+        self._pdf_zoom_label.configure(
+            text=f"{zoom * 100:.0f}%"
+    )
+
 
     def _render_text(self, size):
         if self.path.suffix.lower() == ".docx":
@@ -204,6 +526,12 @@ class PreviewScreen(Screen):
                 self._player.close()
             except Exception:
                 pass
+        if self._cap is not None:
+            try:
+                self._cap.release()
+            except Exception:
+                pass
+        self._cap = None
         self._player = None
 
     def _render_audio(self, size):
@@ -284,7 +612,8 @@ class PreviewScreen(Screen):
         pos = player.position()
         if not self._dragging:
             self.slider.set(min(pos, player.duration))
-        self.wave.set_progress(pos / player.duration if player.duration else 0.0)
+        if self.wave is not None:
+            self.wave.set_progress(pos / player.duration if player.duration else 0.0)
         self.elapsed.configure(text=fmt_time(pos))
         if self._was_playing and not player.playing:  # reached the end, or ffplay failed
             player.pause()
@@ -296,22 +625,128 @@ class PreviewScreen(Screen):
         self._poll_id = self.after(100, self._poll_audio)
 
     def _render_video(self, size):
-        import cv2
         cap = cv2.VideoCapture(str(self.path))
         if not cap.isOpened():
             raise RuntimeError("the video could not be opened")
         fps = cap.get(cv2.CAP_PROP_FPS) or 0
-        frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        ok, frame = cap.read()
-        cap.release()
         ext = self.path.suffix.lstrip(".").upper()
-        duration = fmt_time(frames / fps) if fps else "--:--"
-        self.meta_label.configure(text=f"{ext} video  |  {duration}  |  {width} x {height}  |  {size}")
-        if ok:
-            self._fit_image(Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)), self.body)
-        ctk.CTkLabel(self.body, text="Playback preview comes in the next slice", font=T.font(12),
-                     text_color=T.MUTED).place(relx=0.5, rely=0.96, anchor="s")
+        duration = frames / fps if fps and frames else 0.0
+        shown = fmt_time(duration) if duration else "--:--"
+        self.meta_label.configure(text=f"{ext} video  |  {shown}  |  {width} x {height}  |  {size}")
+        self.wave = None
+        self._cap, self._fps, self._frames, self._last_frame = cap, fps, frames, -1
+
+        controls = ctk.CTkFrame(self.body, fg_color=T.CARD, corner_radius=6)
+        controls.pack(side="bottom", fill="x", padx=18, pady=(4, 10))
+        stage = ctk.CTkFrame(self.body, fg_color="transparent")
+        stage.pack(side="top", fill="both", expand=True)
+        self._vid_label = ctk.CTkLabel(stage, text="")
+        self._vid_label.place(relx=0.5, rely=0.5, anchor="center")
+        self._show_frame(0)
+
+        try:
+            if duration <= 0:
+                raise RuntimeError("could not read the video length")
+            self._player = AudioPlayer(self.path, duration)  # sound only; the picture is drawn by us
+        except Exception as exc:
+            ctk.CTkLabel(controls, text=f"Playback preview unavailable ({exc}). You can still convert this file.",
+                         font=T.font(12), text_color=T.MUTED).pack(padx=12, pady=10)
+            return
+
+        controls.grid_columnconfigure(2, weight=1)
+        self.play_btn = secondary_button(controls, "Play", self._toggle_play, width=100)
+        self.play_btn.grid(row=0, column=0, padx=(10, 10), pady=8)
+        self.elapsed = ctk.CTkLabel(controls, text="00:00", font=T.font(12), text_color=T.MUTED)
+        self.elapsed.grid(row=0, column=1)
+        self.slider = ctk.CTkSlider(controls, from_=0, to=max(duration, 0.1), fg_color=T.MARKER_OFF,
+                                    progress_color=T.PRIMARY, button_color=T.PRIMARY,
+                                    button_hover_color=T.PRIMARY_HOVER)
+        self.slider.set(0)
+        self.slider.grid(row=0, column=2, sticky="ew", padx=10)
+        self.slider.bind("<ButtonPress-1>", lambda _e: setattr(self, "_dragging", True), add="+")
+        self.slider.bind("<ButtonRelease-1>", self._on_slide_release, add="+")
+        ctk.CTkLabel(controls, text=fmt_time(duration), font=T.font(12), text_color=T.MUTED).grid(
+            row=0, column=3, padx=(0, 8))
+        self.audio_state = ctk.CTkLabel(controls, text="Paused", font=T.font(12), text_color=T.MUTED)
+        self.audio_state.grid(row=0, column=4, padx=(0, 12))
+        self._was_playing = False
+        self._poll_id = self.after(33, self._poll_video)
+        self.app.repaint_soon()
+
+    def _show_frame(self, idx):
+        cap = self._cap
+        if cap is None or self._vid_label is None or self._frames <= 0:
+            return
+        idx = max(0, min(idx, self._frames - 1))
+        if idx == self._last_frame:
+            return
+        gap = idx - self._last_frame
+        if self._last_frame >= 0 and 0 < gap <= 6:
+            for _ in range(gap - 1):  # skip frames we are behind on
+                cap.grab()
+        else:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, idx)  # first frame, or the user seeked
+        ok, frame = cap.read()
+        if not ok:
+            return
+        self._last_frame = idx
+
+        bw, bh = int(VIDEO_BOX[0] * T.SCALE), int(VIDEO_BOX[1] * T.SCALE)
+
+        h, w = frame.shape[:2]
+
+        # Scale the video to fit inside the fixed preview area.
+        # Preserve the original aspect ratio.
+        k = min(bw / w, bh / h)
+
+        nw = max(1, int(w * k))
+        nh = max(1, int(h * k))
+
+        small = cv2.resize(
+            frame,
+            (nw, nh),
+            interpolation=cv2.INTER_AREA if k < 1 else cv2.INTER_LINEAR
+        )
+
+        small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+
+        # Center the video inside the fixed-size preview area.
+        canvas = np.zeros((bh, bw, 3), dtype=np.uint8)
+
+        y = (bh - nh) // 2
+        x = (bw - nw) // 2
+
+        canvas[y:y + nh, x:x + nw] = small
+
+        img = Image.fromarray(canvas)
+
+        photo = ctk.CTkImage(
+            light_image=img,
+            dark_image=img,
+            size=VIDEO_BOX
+        )
+
+        self._vid_label.configure(image=photo)
+        self._vid_label.image = photo
+
+    def _poll_video(self):
+        player = self._player
+        if player is None:
+            return
+        pos = self.slider.get() if self._dragging else player.position()
+        if not self._dragging:
+            self.slider.set(min(pos, player.duration))
+        self.elapsed.configure(text=fmt_time(pos))
+        self._show_frame(int(pos * self._fps))
+        if self._was_playing and not player.playing:  # reached the end, or ffplay failed
+            player.pause()
+            self._set_play_ui(False)
+            if player.failed:
+                player.failed = False
+                self.app.status.set("Could not play audio: ffplay stopped right away", "error")
+        self._poll_id = self.after(33, self._poll_video)
 
     def _reset_buttons(self):
         self.change_btn.configure(state="normal")
