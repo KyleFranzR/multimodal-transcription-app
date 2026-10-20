@@ -35,12 +35,12 @@ def compute_peaks(samples, bins=56):
 class AudioPlayer:
     """Plays through ffplay (the system audio server), like the old preview did."""
 
-    def __init__(self, path, duration):
+    def __init__(self, path, duration, video=False):
         if shutil.which("ffplay") is None:
-            raise RuntimeError("ffplay is not installed (sudo apt install ffmpeg)")
-        self.path, self.duration = str(path), duration
+            raise RuntimeError("ffplay is not installed (install FFmpeg and add it to PATH)")
+        self.path, self.duration, self.video = str(path), duration, video
         self._proc, self._start_pos, self._start_time, self._pos = None, 0.0, 0.0, 0.0
-        self.failed = False
+        self.failed = False 
 
     @property
     def playing(self):
@@ -61,9 +61,10 @@ class AudioPlayer:
         self.pause()
         start = 0.0 if self._pos >= self.duration - 0.05 else self._pos
         self.failed = False
+        cmd = ["ffplay"] + ([] if self.video else ["-nodisp"]) + [
+            "-autoexit", "-loglevel", "quiet", "-ss", f"{start:.2f}", self.path]
         self._proc = subprocess.Popen(
-            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", "-ss", f"{start:.2f}", self.path],
-            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._start_pos, self._start_time = start, time.monotonic()
 
     def pause(self):

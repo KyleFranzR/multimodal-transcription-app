@@ -1,0 +1,2 @@
+[console_scripts]
+caecus = caecus.main:main
