@@ -40,31 +40,70 @@ def make_tappable(command, card, *children):
         widget.bind("<ButtonRelease-1>", release, add="+")
 
 
-class Marker(tk.Canvas):
-    """Round numbered step marker, drawn by hand (tiny CTk rounded widgets mis-paint on the Pi)."""
+class _SelfPainting(tk.Canvas):
+    """Canvas that redraws itself when mapped or resized.
+
+    The first paint of widgets is dropped on the Pi (XWayland), so items are recreated
+    shortly after the window is shown and whenever the size changes.
+    """
+
+    def __init__(self, parent, px, bg):
+        super().__init__(parent, width=px, height=px, bg=bg, highlightthickness=0, bd=0)
+        self._px = px
+        self.bind("<Map>", self._soon, add="+")
+        self.bind("<Configure>", self._soon, add="+")
+        self.after(200, self.redraw)
+        self.after(1600, self.redraw)
+
+    def _soon(self, _event=None):
+        self.after(50, self.redraw)
+
+    def redraw(self):
+        try:
+            self.delete("all")
+            self.draw()
+            self.update_idletasks()
+        except tk.TclError:  # widget already destroyed
+            pass
+
+    def draw(self):
+        raise NotImplementedError
+
+
+class Marker(_SelfPainting):
+    """Round numbered step marker."""
 
     SIZE = 22
 
     def __init__(self, parent, number):
-        px = int(self.SIZE * T.SCALE)
-        super().__init__(parent, width=px, height=px, bg=T.BG, highlightthickness=0, bd=0)
-        self._oval = self.create_oval(1, 1, px - 1, px - 1, outline="", fill=T.MARKER_OFF)
-        self._text = self.create_text(px / 2, px / 2, text=str(number), fill=T.MUTED,
-                                      font=T.tk_font(12, "bold"))
+        self._number, self._active = number, False
+        super().__init__(parent, int(self.SIZE * T.SCALE), T.BG)
+        self.redraw()
+
+    def draw(self):
+        px = self._px
+        self.create_oval(1, 1, px - 1, px - 1, outline="",
+                         fill=T.PRIMARY if self._active else T.MARKER_OFF)
+        self.create_text(px / 2, px / 2, text=str(self._number),
+                         fill="#FFFFFF" if self._active else T.MUTED, font=T.tk_font(12, "bold"))
 
     def set_active(self, active):
-        self.itemconfigure(self._oval, fill=T.PRIMARY if active else T.MARKER_OFF)
-        self.itemconfigure(self._text, fill="#FFFFFF" if active else T.MUTED)
+        self._active = active
+        self.redraw()
 
 
-class Dot(tk.Canvas):
+class Dot(_SelfPainting):
     def __init__(self, parent, bg, color=T.PRIMARY, size=6):
-        px = max(4, int(size * T.SCALE))
-        super().__init__(parent, width=px, height=px, bg=bg, highlightthickness=0, bd=0)
-        self._oval = self.create_oval(0, 0, px - 1, px - 1, outline="", fill=color)
+        self._color = color
+        super().__init__(parent, max(4, int(size * T.SCALE)), bg)
+        self.redraw()
+
+    def draw(self):
+        self.create_oval(0, 0, self._px - 1, self._px - 1, outline="", fill=self._color)
 
     def set_color(self, color):
-        self.itemconfigure(self._oval, fill=color)
+        self._color = color
+        self.redraw()
 
 
 class StepProgress(ctk.CTkFrame):
