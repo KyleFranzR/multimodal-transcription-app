@@ -171,6 +171,8 @@ class PreviewScreen(Screen):
                 self._render_video(size)
             elif self.path.suffix.lower() == ".pdf":
                 self._render_pdf(size)
+            elif self.path.suffix.lower() == ".docx":
+                self._render_docx(size)    
             else:
                 self._render_text(size)
         except Exception as exc:
@@ -275,16 +277,16 @@ class PreviewScreen(Screen):
         self._draw_image()
 
     
-    def _render_pdf(self, size):
+    def _render_pdf(self, size, doc=None, label="PDF document"):
         import pymupdf
 
-        self._pdf = pymupdf.open(self.path)
+        self._pdf = doc if doc is not None else pymupdf.open(self.path)
         self._page, self._pages = 0, len(self._pdf)
         self._pdf_zoom = 1.0
 
         plural = "s" if self._pages != 1 else ""
         self.meta_label.configure(
-            text=f"PDF document  |  {self._pages} page{plural}  |  {size}"
+            text=f"{label}  |  {self._pages} page{plural}  |  {size}"
         )
 
         self.body.grid_columnconfigure(0, weight=1)
@@ -491,6 +493,79 @@ class PreviewScreen(Screen):
             text=f"{zoom * 100:.0f}%"
     )
 
+    def _docx_to_pdf(self):
+        """Lay the Word file out as A4 pages in memory (text, headings, bold/italic, lists, tables)."""
+        import html
+        import io
+        import docx
+        import pymupdf
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+
+        def runs_html(par):
+            out = []
+            for r in par.runs:
+                t = html.escape(r.text).replace("\n", "<br>").replace("\t", "&nbsp;&nbsp;&nbsp;&nbsp;")
+                if not t:
+                    continue
+                if r.bold:
+                    t = f"<b>{t}</b>"
+                if r.italic:
+                    t = f"<i>{t}</i>"
+                if r.underline:
+                    t = f"<u>{t}</u>"
+                out.append(t)
+            return "".join(out)
+
+        def par_html(par):
+            body = runs_html(par)
+            name = (par.style.name or "") if par.style is not None else ""
+            if name.startswith("Heading") or name == "Title":
+                digits = "".join(c for c in name if c.isdigit())
+                level = min(max(int(digits), 1), 4) if digits else 1
+                return f"<h{level}>{body}</h{level}>" if body else ""
+            if name.startswith("List"):
+                body = "&bull;&nbsp;" + body
+            align = {1: "center", 2: "right", 3: "justify"}.get(par.alignment, "left")
+            return f'<p style="text-align:{align}">{body or "&nbsp;"}</p>'
+
+        document = docx.Document(self.path)
+        parts = []
+        for child in document.element.body.iterchildren():
+            if child.tag.endswith("}p"):
+                parts.append(par_html(Paragraph(child, document)))
+            elif child.tag.endswith("}tbl"):
+                rows = []
+                for row in Table(child, document).rows:
+                    cells = "".join(f"<td>{'<br>'.join(runs_html(p) for p in c.paragraphs)}</td>"
+                                    for c in row.cells)
+                    rows.append(f"<tr>{cells}</tr>")
+                parts.append(f'<table border="1" cellpadding="4">{"".join(rows)}</table>')
+        content = "".join(parts) or "<p>&nbsp;</p>"
+
+        css = "body{font-family:sans-serif;font-size:11pt} h1{font-size:20pt} h2{font-size:16pt} " \
+              "h3{font-size:13pt} p{margin:0 0 6pt 0}"
+        story = pymupdf.Story(html=content, user_css=css)
+        buf = io.BytesIO()
+        writer = pymupdf.DocumentWriter(buf)
+        mediabox = pymupdf.paper_rect("a4")
+        where = mediabox + (54, 54, -54, -54)  # ~0.75 inch margins
+        more = 1
+        while more:
+            dev = writer.begin_page(mediabox)
+            more, _ = story.place(where)
+            story.draw(dev)
+            writer.end_page()
+        writer.close()
+        return pymupdf.open("pdf", buf.getvalue())
+
+    def _render_docx(self, size):
+        try:
+            doc = self._docx_to_pdf()
+        except Exception:
+            self._render_text(size)  # fall back to the plain text preview
+            return
+        self._render_pdf(size, doc=doc, label="Word document")
 
     def _render_text(self, size):
         if self.path.suffix.lower() == ".docx":
