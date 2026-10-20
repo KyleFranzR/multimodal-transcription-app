@@ -6,7 +6,7 @@ import config
 
 class AudioProcessor:
     def __init__(self, asr_service=None):
-        self.supported_extensions = {".wav", ".mp3"}
+        self.supported_extensions = {".wav", ".mp3", ".ogg"}
         self.asr_service = asr_service
 
     def process(self, file_path: str, progress_callback=None, is_cancelled=None) -> str:
