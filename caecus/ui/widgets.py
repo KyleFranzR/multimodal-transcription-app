@@ -47,8 +47,8 @@ class _SelfPainting(tk.Canvas):
     shortly after the window is shown and whenever the size changes.
     """
 
-    def __init__(self, parent, px, bg):
-        super().__init__(parent, width=px, height=px, bg=bg, highlightthickness=0, bd=0)
+    def __init__(self, parent, px, bg, height=None):
+        super().__init__(parent, width=px, height=height or px, bg=bg, highlightthickness=0, bd=0)
         self._px = px
         self.bind("<Map>", self._soon, add="+")
         self.bind("<Configure>", self._soon, add="+")
@@ -144,3 +144,31 @@ class StatusBar(ctk.CTkFrame):
     def set(self, text, level="info"):
         self._dot.set_color(self.COLORS.get(level, T.PRIMARY))
         self._label.configure(text=text)
+
+
+class Waveform(_SelfPainting):
+    """Decorative waveform; bars left of the progress point are drawn in the accent color."""
+
+    PLAYED, UNPLAYED = T.PRIMARY, "#9DB5D6"
+
+    def __init__(self, parent, peaks, bg=T.BG, width=520, height=70):
+        self._peaks, self._idx = list(peaks), 0
+        self._h = max(20, int(height * T.SCALE))
+        super().__init__(parent, int(width * T.SCALE), bg, height=self._h)
+        self.redraw()
+
+    def draw(self):
+        n = len(self._peaks)
+        slot = self._px / n
+        for i, peak in enumerate(self._peaks):
+            x = slot * i + slot / 2
+            half = max(2, peak * (self._h - 8) / 2)
+            color = self.PLAYED if i < self._idx else self.UNPLAYED
+            self.create_line(x, self._h / 2 - half, x, self._h / 2 + half,
+                             width=max(2, slot * 0.5), fill=color, capstyle="round")
+
+    def set_progress(self, fraction):
+        idx = int(max(0.0, min(1.0, fraction)) * len(self._peaks))
+        if idx != self._idx:
+            self._idx = idx
+            self.redraw()
