@@ -38,7 +38,8 @@ class CaecusApp(ctk.CTk):
             self.geometry(geometry)
         else:
             self.after(1000, lambda: self.attributes("-fullscreen", True))
-        self.bind("<Control-Alt-q>", lambda _e: self.destroy())
+        self.bind("<Control-Alt-q>", lambda _e: self.close())
+        self.protocol("WM_DELETE_WINDOW", self.close)
 
         self._build_chrome()
         self.screens = {}
@@ -95,6 +96,14 @@ class CaecusApp(ctk.CTk):
         self.subheading_label.configure(text=screen.subheading)
         self.progress.set_step(screen.step)
         self.repaint_soon()
+
+    def close(self):
+        """Stop playback and let the speech engine finish loading before exiting."""
+        current = getattr(self, "_current", None)
+        if current is not None:
+            current.on_hide()
+        self.transcriber.wait_until_loaded()
+        self.destroy()
 
     def _check_asr(self):
         if self.transcriber.asr_state in ("idle", "loading"):
