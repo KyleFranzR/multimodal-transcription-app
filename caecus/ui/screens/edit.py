@@ -41,8 +41,10 @@ class EditScreen(Screen):
         secondary_button(self.actions, "Copy", self._copy, width=100).grid(row=0, column=0, padx=(0, 8))
         secondary_button(self.actions, "Save text...", self._save, width=150).grid(row=0, column=1)
         ctk.CTkLabel(self.actions, text="Return to Import / attach", font=T.font(13),
-                     text_color=T.MUTED).grid(row=0, column=3, padx=(0, 12))
-        primary_button(self.actions, "Convert another", self._again, width=190).grid(row=0, column=4)
+            text_color=T.MUTED).grid(row=0, column=3, padx=(0, 12))
+        primary_button(self.actions, "Convert to braille", self._to_braille, width=190).grid(
+            row=0, column=4, padx=(0, 8))
+        secondary_button(self.actions, "Convert another", self._again, width=170).grid(row=0, column=5)
 
     def on_show(self, text="", source="", **ctx):
         self._source = source
@@ -82,3 +84,10 @@ class EditScreen(Screen):
 
     def _again(self):
         self.app.show("attach")
+
+    def _to_braille(self):
+        text = self._text()
+        if not text.strip():
+            self.app.status.set("Nothing to convert to braille", "warn")
+            return
+        self.app.show("braille", text=text, source=self._source)

@@ -107,7 +107,7 @@ class Dot(_SelfPainting):
 
 
 class StepProgress(ctk.CTkFrame):
-    LABELS = ("Attach", "Preview", "Edit text")
+    LABELS = ("Attach", "Preview", "Edit text", "Braille")
 
     def __init__(self, parent):
         super().__init__(parent, fg_color="transparent")
