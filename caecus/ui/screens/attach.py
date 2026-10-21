@@ -7,8 +7,12 @@ from caecus.ui import theme as T
 from caecus.ui.screens.base import Screen
 from caecus.ui.widgets import Card, make_tappable, primary_button, secondary_button
 
-PLACEHOLDER = "Type or paste text here..."
+from caecus.ui.player import fmt_time
 
+PLACEHOLDER = "Type or paste text here..."
+DEFAULT_MIC = "System default"
+
+MAX_RECORD_SECONDS = 120  # auto stopper recording
 
 def _types(label, exts):
     patterns = " ".join(f"*{e} *{e.upper()}" for e in exts)
@@ -75,9 +79,34 @@ class AttachScreen(Screen):
     def _speech_card(self, parent):
         card = Card(parent)
         card.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
-        ctk.CTkLabel(card, text="Transcribe speech", font=T.font(13), text_color=T.MUTED,
-                     anchor="w").pack(fill="x", padx=12, pady=(12, 6))
-        primary_button(card, "Speak", self._speak).pack(fill="x", padx=12, pady=(0, 12))
+        self._recorder, self._rec_after = None, None
+
+        # idle: ang dating itsura
+        self._idle = ctk.CTkFrame(card, fg_color="transparent")
+        mic_row = ctk.CTkFrame(self._idle, fg_color="transparent")
+        mic_row.pack(fill="x", padx=12, pady=(12, 6))
+        ctk.CTkLabel(mic_row, text="Transcribe speech", font=T.font(13), text_color=T.MUTED,
+                     anchor="w").pack(side="left")
+        self._mic_menu = ctk.CTkOptionMenu(
+            mic_row, values=[DEFAULT_MIC], width=170, height=26, font=T.font(11),
+            dropdown_font=T.font(12), fg_color=T.BG, button_color=T.BORDER,
+            button_hover_color=T.PRIMARY_TINT, text_color=T.TEXT, command=self._on_mic)
+        self._mic_menu.pack(side="right")
+        primary_button(self._idle, "Speak", self._speak).pack(fill="x", padx=12, pady=(0, 12))
+
+        # recording: timer + Stop
+        self._rec = ctk.CTkFrame(card, fg_color="transparent")
+        top = ctk.CTkFrame(self._rec, fg_color="transparent")
+        top.pack(fill="x", padx=12, pady=(12, 6))
+        ctk.CTkLabel(top, text="Recording...", font=T.font(13), text_color=T.DANGER,
+                     anchor="w").pack(side="left")
+        self._rec_timer = ctk.CTkLabel(top, text="00:00", font=T.font(16, "bold"), text_color=T.TEXT)
+        self._rec_timer.pack(side="right")
+        ctk.CTkButton(self._rec, text="Stop", command=self._stop_recording, height=44, corner_radius=8,
+                      fg_color=T.DANGER, hover_color="#8F2B2B", text_color="#FFFFFF",
+                      font=T.font(15, "bold")).pack(fill="x", padx=12, pady=(0, 12))
+
+        self._idle.pack(fill="both", expand=True)
 
     def _text_card(self, parent):
         card = Card(parent)
@@ -115,6 +144,7 @@ class AttachScreen(Screen):
         self.entry.delete("1.0", "end")
         self._placeholder_on = False
         self._entry_focus_out()
+        self._load_mics()
         self.refresh_status()
 
     def refresh_status(self):
@@ -135,7 +165,73 @@ class AttachScreen(Screen):
         self.app.show("preview", path=path, kind=kind)
 
     def _speak(self):
-        self.app.status.set("Speech capture screen comes in a later slice", "warn")
+        if self._recorder is not None:
+            return
+        try:
+            from caecus.ui.recorder import Recorder
+            rec = Recorder()
+            rec.start()
+        except Exception as exc:
+            self.app.status.set(f"Cannot start recording: {exc}"[:150], "error")
+            return
+        self._recorder = rec
+        self._rec_timer.configure(text="00:00")
+        self._idle.pack_forget()
+        self._rec.pack(fill="both", expand=True)
+        self.app.status.set("Recording...  Press Stop when you are done", "warn")
+        self.app.repaint_soon()
+        self._tick()
+
+    def _tick(self):
+        rec = self._recorder
+        if rec is None:
+            return
+        secs = rec.elapsed()
+        self._rec_timer.configure(text=fmt_time(secs))
+        if secs >= MAX_RECORD_SECONDS:
+            self._stop_recording()
+            return
+        self._rec_after = self.after(100, self._tick)
+
+    def _cancel_timer(self):
+        if self._rec_after is not None:
+            try:
+                self.after_cancel(self._rec_after)
+            except Exception:
+                pass
+            self._rec_after = None
+
+    def _show_idle(self):
+        self._rec.pack_forget()
+        self._idle.pack(fill="both", expand=True)
+        self.app.repaint_soon()
+
+    def _stop_recording(self):
+        rec, self._recorder = self._recorder, None
+        self._cancel_timer()
+        self._show_idle()
+        if rec is None:
+            return
+        try:
+            path = rec.stop()
+        except Exception as exc:
+            self.app.status.set(f"Could not save the recording: {exc}"[:150], "error")
+            return
+        if path is None or rec.elapsed() < 0.5:
+            self.app.status.set("Recording was too short, please try again", "warn")
+            return
+        self.app.show("preview", path=str(path), kind="audio")
+
+    def on_hide(self):
+        # umalis sa screen habang nagre-record: itapon ang recording
+        self._cancel_timer()
+        rec, self._recorder = self._recorder, None
+        if rec is not None:
+            try:
+                rec.cancel()
+            except Exception:
+                pass
+        self._show_idle()
 
     def _use_typed(self):
         text = self._typed_text()
@@ -143,3 +239,20 @@ class AttachScreen(Screen):
             self.app.status.set("Type or paste some text first", "warn")
             return
         self.app.show("edit", text=text, source="Typed text")
+
+    def _load_mics(self):
+        try:
+            from caecus.ui import recorder
+            names = [DEFAULT_MIC] + recorder.input_devices()
+            saved = recorder.load_choice()
+        except Exception:
+            return  # walang sounddevice: ipapakita ng Speak ang error
+        self._mic_menu.configure(values=names)
+        self._mic_menu.set(saved if saved in names else DEFAULT_MIC)
+
+    def _on_mic(self, choice):
+        try:
+            from caecus.ui import recorder
+            recorder.save_choice("" if choice == DEFAULT_MIC else choice)
+        except Exception:
+            pass
