@@ -26,6 +26,12 @@ class CaecusApp(ctk.CTk):
         self.last_dir = str(Path.home())
         self.transcriber = Transcriber()
 
+        try:
+            from caecus.ui.recorder import cleanup_old
+            cleanup_old(24)  # burahin ang recording na mas matanda sa 24 oras
+        except Exception:
+            pass  # walang sounddevice o hindi ma-clean: hindi dapat pigilan ang app
+
         # Kiosk fullscreen must be applied after CTk finishes window setup.
         geometry = os.environ.get("CAECUS_GEOMETRY")  # e.g. 1024x600 for a windowed test
         if geometry:

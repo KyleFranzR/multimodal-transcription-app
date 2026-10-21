@@ -128,3 +128,13 @@ class Recorder:
                 stream.stop()
             finally:
                 stream.close()
+
+def cleanup_old(max_age_hours=24):
+        """Delete caecus-recording-*.wav in the temp folder that are older than max_age_hours."""
+        cutoff = time.time() - max_age_hours * 3600
+        for path in Path(tempfile.gettempdir()).glob("caecus-recording-*.wav"):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+            except OSError:
+                pass  # ginagamit pa o walang permiso: laktawan   
