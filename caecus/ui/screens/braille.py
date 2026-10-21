@@ -8,7 +8,8 @@ from caecus.ui import theme as T
 from caecus.ui.screens.base import Screen
 from caecus.ui.widgets import Card, primary_button, secondary_button
 
-
+from caecus.ui import embosser
+from caecus.ui.embosser import CELLS_PER_LINE, LINES_PER_PAGE
 
 _LET = dict(zip("abcdefghijklmnopqrstuvwxyz", "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚⠅⠇⠍⠝⠕⠏⠟⠗⠎⠞⠥⠧⠺⠭⠽⠵"))
 _NUM = dict(zip("1234567890", "⠁⠃⠉⠙⠑⠋⠛⠓⠊⠚"))
@@ -17,8 +18,7 @@ _PUNCT = {",": "⠂", ";": "⠆", ":": "⠒", ".": "⠲", "!": "⠖", "?": "⠦"
           "/": "⠸⠌", "…": "⠲⠲⠲"}
 _NUMBER_SIGN, _CAPITAL, _CAPITAL_WORD, _LETTER_SIGN = "⠼", "⠠", "⠠⠠", "⠰"
 
-CELLS_PER_LINE = 30
-LINES_PER_PAGE = 27
+
 GRADE = "Grade 1"
 
 
@@ -116,7 +116,9 @@ class BrailleScreen(Screen):
         secondary_button(self.actions, "< Back to edit", self._back, width=150).grid(row=0, column=0, padx=(0, 8))
         secondary_button(self.actions, "Copy", self._copy, width=100).grid(row=0, column=1, padx=(0, 8))
         secondary_button(self.actions, "Save braille...", self._save, width=160).grid(row=0, column=2)
-        primary_button(self.actions, "Convert another", self._again, width=190).grid(row=0, column=4)
+        self.print_btn = primary_button(self.actions, "Print", self._print, width=120)
+        self.print_btn.grid(row=0, column=4, padx=(0, 8))
+        secondary_button(self.actions, "Convert another", self._again, width=170).grid(row=0, column=5)
 
     def on_show(self, text="", source="", **ctx):
         self._source, self._text_in = source, text
@@ -172,3 +174,21 @@ class BrailleScreen(Screen):
 
     def _again(self):
         self.app.show("attach")
+
+    def _print(self):
+        text = self._braille()
+        if not self._ok or not text.strip():
+            self.app.status.set("Nothing to print", "warn")
+            return
+        pages = embosser.paginate(text)
+        n = len(pages)
+        label = f"{n} page{'s' if n != 1 else ''}"
+        try:
+            embosser.send_pages(pages)
+        except embosser.EmbosserError as exc:
+            self.app.status.set(f"Cannot print ({label} ready): {exc}"[:150], "warn")
+            return
+        except Exception as exc:
+            self.app.status.set(f"Print failed: {exc}"[:150], "error")
+            return
+        self.app.status.set(f"Sent {label} to the embosser", "ok")
