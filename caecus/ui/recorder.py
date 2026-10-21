@@ -112,7 +112,11 @@ class Recorder:
         if level > 50:  # hindi tahimik
             data = np.clip(data * min(MAX_GAIN, TARGET_PEAK / level), -32768, 32767)
         data = data.astype(np.int16)
-        path = Path(tempfile.gettempdir()) / f"caecus-recording-{time.strftime('%Y%m%d-%H%M%S')}.wav"
+
+        folder = Path(tempfile.gettempdir()) / "caecus"
+        folder.mkdir(exist_ok=True)
+        path = folder / f"Recording {time.strftime('%b %d  %I.%M.%S %p')}.wav"
+
         with wave.open(str(path), "wb") as wav:
             wav.setnchannels(1)
             wav.setsampwidth(2)
@@ -128,3 +132,14 @@ class Recorder:
                 stream.stop()
             finally:
                 stream.close()
+
+def cleanup_old(max_age_hours=24):
+    """Delete recordings older than max_age_hours (new folder and the old temp-root names)."""
+    cutoff = time.time() - max_age_hours * 3600
+    temp = Path(tempfile.gettempdir())
+    for path in [*(temp / "caecus").glob("*.wav"), *temp.glob("caecus-recording-*.wav")]:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            pass
