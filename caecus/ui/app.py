@@ -6,6 +6,7 @@ import customtkinter as ctk
 from caecus.ui import theme as T
 from caecus.ui.services import Transcriber
 from caecus.ui.screens.attach import AttachScreen
+from caecus.ui.screens.braille import BrailleScreen
 from caecus.ui.screens.edit import EditScreen
 from caecus.ui.screens.preview import PreviewScreen
 from caecus.ui.widgets import StatusBar, StepProgress
@@ -35,7 +36,7 @@ class CaecusApp(ctk.CTk):
 
         self._build_chrome()
         self.screens = {}
-        for cls in (AttachScreen, PreviewScreen, EditScreen):
+        for cls in (AttachScreen, PreviewScreen, EditScreen, BrailleScreen):
             self.screens[cls.name] = cls(self)
         self._current = None
         self.show("attach")
