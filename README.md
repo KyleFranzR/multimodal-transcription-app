@@ -99,6 +99,34 @@ caecus/models/sherpa-onnx-nemo-streaming-fast-conformer-transducer-en-480ms-int8
    pip install -e .
    ```
 
+4. **Install the system packages (not installed by pip):**
+
+   *Raspberry Pi:*
+```bash
+   sudo apt update
+   sudo apt install ffmpeg tesseract-ocr libportaudio2 libsndfile1 python3-tk fonts-dejavu
+```
+
+   *Windows:*
+```bash
+   winget install Gyan.FFmpeg
+   winget install UB-Mannheim.TesseractOCR
+```
+
+   These are needed for audio/video preview (FFmpeg), reading text from images (Tesseract),
+   microphone recording (`libportaudio2`) and the braille characters (`fonts-dejavu`).
+   On Windows, close and reopen the terminal afterwards.
+
+5. **Run the app: (with New UI)**
+```bash
+   python -m caecus.ui.app
+```
+
+6. **Microphone (Speak option):**
+
+   On the Import screen, pick your microphone from the dropdown beside *Transcribe speech*.
+   Leave it on *System default* to use the system's default input device.
+
 ---
 
 ## Usage
