@@ -32,6 +32,47 @@ def compute_peaks(samples, bins=56):
     return [max(0.08, p / top) for p in peaks]
 
 
+def _has_video(path):
+    try:
+        out = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type",
+             "-of", "csv=p=0", str(path)], capture_output=True, timeout=15).stdout
+        return bool(out.strip())
+    except Exception:
+        return False
+
+
+def _seekable_audio(path):
+    """ffplay seeks to the nearest *video keyframe* when the file has a video stream, so the sound
+    lands up to a few seconds off the slider. A plain audio copy seeks exactly."""
+    import hashlib
+    import os
+    import tempfile
+    path = str(path)
+    if not _has_video(path):
+        return path
+    folder = os.path.join(tempfile.gettempdir(), "caecus_audio")
+    os.makedirs(folder, exist_ok=True)
+    now = time.time()
+    for name in os.listdir(folder):  # drop copies older than a day
+        try:
+            if now - os.path.getmtime(os.path.join(folder, name)) > 86400:
+                os.remove(os.path.join(folder, name))
+        except OSError:
+            pass
+    st = os.stat(path)
+    key = hashlib.sha1(f"{path}|{st.st_size}|{st.st_mtime_ns}".encode()).hexdigest()[:16]
+    out = os.path.join(folder, key + ".wav")
+    if not os.path.exists(out):
+        tmp = out + ".part.wav"
+        proc = subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", path, "-vn", "-ac", "1",
+                               "-ar", "22050", "-c:a", "pcm_s16le", tmp], capture_output=True, timeout=300)
+        if proc.returncode != 0:
+            return path  # no audio track, or ffmpeg failed: play the original
+        os.replace(tmp, out)
+    return out
+
+
 class AudioPlayer:
     """Plays through ffplay (the system audio server), like the old preview did."""
 
@@ -39,6 +80,7 @@ class AudioPlayer:
         if shutil.which("ffplay") is None:
             raise RuntimeError("ffplay is not installed (install FFmpeg and add it to PATH)")
         self.path, self.duration, self.video = str(path), duration, video
+        self.play_path = self.path if video else _seekable_audio(self.path)
         self._proc, self._start_pos, self._start_time, self._pos = None, 0.0, 0.0, 0.0
         self.failed = False 
 
@@ -62,7 +104,7 @@ class AudioPlayer:
         start = 0.0 if self._pos >= self.duration - 0.05 else self._pos
         self.failed = False
         cmd = ["ffplay"] + ([] if self.video else ["-nodisp"]) + [
-            "-autoexit", "-loglevel", "quiet", "-ss", f"{start:.2f}", self.path]
+            "-autoexit", "-loglevel", "quiet", "-ss", f"{start:.2f}", self.play_path]
         self._proc = subprocess.Popen(
             cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._start_pos, self._start_time = start, time.monotonic()

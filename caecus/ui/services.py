@@ -20,7 +20,13 @@ class Transcriber:
         if self.asr_state != "idle":
             return
         self.asr_state = "loading"
-        threading.Thread(target=self._load, daemon=True).start()
+        self._thread = threading.Thread(target=self._load, daemon=True)
+        self._thread.start()
+
+    def wait_until_loaded(self, timeout=20):
+        thread = getattr(self, "_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)
 
     def _load(self):
         try:

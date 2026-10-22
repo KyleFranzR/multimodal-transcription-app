@@ -22,7 +22,7 @@ WARN = "#B7791F"
 OK = "#2F855A"
 DISABLED_TEXT = "#A9B2BE"
 
-FAMILY_PREFERENCE = ("OpenDyslexic", "Inter", "DejaVu Sans")
+FAMILY_PREFERENCE = ("Inter", "DejaVu Sans")
 _family = None
 _tk_fonts = {}
 

@@ -107,7 +107,7 @@ class AttachScreen(Screen):
                       fg_color=T.DANGER, hover_color="#8F2B2B", text_color="#FFFFFF",
                       font=T.font(15, "bold")).pack(fill="x", padx=12, pady=(0, 12))
 
-        self._idle.pack(fill="both", expand=True)
+        self._idle.pack(fill="both", expand=True, padx=3, pady=3)
 
     def _text_card(self, parent):
         card = Card(parent)
@@ -178,7 +178,7 @@ class AttachScreen(Screen):
         self._recorder = rec
         self._rec_timer.configure(text="00:00")
         self._idle.pack_forget()
-        self._rec.pack(fill="both", expand=True)
+        self._rec.pack(fill="both", expand=True, padx=3, pady=3)
         self.app.status.set("Recording...  Press Stop when you are done", "warn")
         self.app.repaint_soon()
         self._tick()
@@ -204,7 +204,7 @@ class AttachScreen(Screen):
 
     def _show_idle(self):
         self._rec.pack_forget()
-        self._idle.pack(fill="both", expand=True)
+        self._idle.pack(fill="both", expand=True, padx=3, pady=3)
         self.app.repaint_soon()
 
     def _stop_recording(self):
