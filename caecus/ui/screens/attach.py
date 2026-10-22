@@ -35,8 +35,8 @@ class AttachScreen(Screen):
 
     def build(self):
         ws = self.workspace
-        ws.grid_columnconfigure(0, weight=488)
-        ws.grid_columnconfigure(1, weight=268)
+        ws.grid_columnconfigure(0, weight=488, uniform="main")
+        ws.grid_columnconfigure(1, weight=268, uniform="main")
         ws.grid_rowconfigure(0, weight=1)
 
         left = ctk.CTkFrame(ws, fg_color="transparent")
@@ -49,8 +49,8 @@ class AttachScreen(Screen):
         right = ctk.CTkFrame(ws, fg_color="transparent")
         right.grid(row=0, column=1, sticky="nsew")
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(0, weight=106)
-        right.grid_rowconfigure(1, weight=158)
+        right.grid_rowconfigure(0, weight=106, uniform="right")
+        right.grid_rowconfigure(1, weight=158, uniform="right")
         self._speech_card(right)
         self._text_card(right)
 
@@ -79,6 +79,7 @@ class AttachScreen(Screen):
     def _speech_card(self, parent):
         card = Card(parent)
         card.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
+        card.pack_propagate(False)  # huwag baguhin ang laki ng card ayon sa laman
         self._recorder, self._rec_after = None, None
 
         # idle: ang dating itsura
