@@ -53,7 +53,7 @@ class ASRService:
             sample_rate=16000,
             feature_dim=80,
             provider="cpu",
-            decoding_method="greedy_search",
+            decoding_method="modified_beam_search",
             enable_endpoint_detection=True,
         )
 

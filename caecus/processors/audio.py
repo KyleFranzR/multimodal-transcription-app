@@ -3,6 +3,7 @@ import librosa
 
 import config
 
+import numpy as np
 
 class AudioProcessor:
     def __init__(self, asr_service=None):
@@ -42,5 +43,12 @@ class AudioProcessor:
             if progress_callback:
                 processed_ratio = min(1.0, (offset + len(chunk)) / total_samples)
                 progress_callback(processed_ratio)
+
+        # Flush: need silence to get last word.
+        tail = np.zeros(int(1.0 * config.SAMPLE_RATE), dtype=np.float32)
+        stream.accept_waveform(config.SAMPLE_RATE, tail)
+        stream.input_finished()
+        while self.asr_service.recognizer.is_ready(stream):
+            self.asr_service.recognizer.decode_stream(stream)
 
         return self.asr_service.recognizer.get_result(stream).strip()
