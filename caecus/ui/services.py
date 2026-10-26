@@ -33,7 +33,8 @@ class Transcriber:
             from caecus.services.engine import ASRService
             from caecus.processors.audio import AudioProcessor
             from caecus.processors.video import VideoProcessor
-            self.asr = ASRService()
+            self.asr = ASRService(
+		model_dir_name="sherpa-onnx-streaming-zipformer-fil-en")
             self._processors["audio"] = AudioProcessor(asr_service=self.asr)
             self._processors["video"] = VideoProcessor(asr_service=self.asr)
             self.asr_state = "ready"
