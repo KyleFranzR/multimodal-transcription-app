@@ -6,6 +6,8 @@ from moviepy import VideoFileClip
 
 import config
 
+import numpy as np
+
 class VideoProcessor:
     def __init__(self, asr_service=None):
         self.supported_extensions = {".mp4", ".mov", ".avi", ".mkv"}
@@ -53,6 +55,12 @@ class VideoProcessor:
 
                 if progress_callback:
                     progress_callback(min(1.0, (offset + len(chunk)) / total_samples))
+
+            tail = np.zeros(int(1.0 * config.SAMPLE_RATE), dtype=np.float32)
+            stream.accept_waveform(config.SAMPLE_RATE, tail)
+            stream.input_finished()
+            while self.asr_service.recognizer.is_ready(stream):
+                self.asr_service.recognizer.decode_stream(stream)
 
             return self.asr_service.recognizer.get_result(stream).strip()
 
